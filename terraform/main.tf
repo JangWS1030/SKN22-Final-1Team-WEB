@@ -12,6 +12,16 @@ resource "aws_ecr_repository" "backend_repo" {
   }
 }
 
+# 1-2. ECR Repository 저장소 (Frontend 이미지 보관)
+resource "aws_ecr_repository" "frontend_repo" {
+  name                 = "mirrai-frontend"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
 # 2. S3 버킷 (고객 얼굴 이미지 임시 저장용)
 resource "aws_s3_bucket" "image_bucket" {
   bucket = "mirrai-user-images-${var.env}"
@@ -72,15 +82,23 @@ resource "aws_security_group" "alb_sg" {
 
 resource "aws_security_group" "ec2_sg" {
   name        = "mirrai-backend-ec2-sg"
-  description = "Allow inbound traffic from ALB"
+  description = "Allow inbound HTTP and 8000 traffic directly"
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "Allow traffic from ALB on port 8000"
-    from_port       = 8000
-    to_port         = 8000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
+    description = "HTTP for frontend"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Backend API"
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   # SSM 접근을 위해 22번 포트(SSH)는 열지 않는 것이 모범 사례 (Session Manager 사용 권장)
