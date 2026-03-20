@@ -28,3 +28,11 @@ terraform.tfstate*
 # OS generated files
 .DS_Store
 Thumbs.db
+.terraform/
+terraform/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform/.terraform/
+terraform/.terraform/
+*.tfstate.*
