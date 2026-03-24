@@ -13,6 +13,68 @@ __pycache__/
 # Environment variables
 .env
 
+# Terraform
+.terraform/
+terraform.tfstate*
+*.tfstate*
+.terraform.lock.hcl
+
+# Executables
+*.exe
+*.dll
+*.so
+*.dylib
+
 # OS generated files
 .DS_Store
 Thumbs.db
+
+.terraform/
+terraform/.terraform/
+*.tfstate
+*.tfstate.*
+
+# Database & Storage
+*.sqlite3
+*.db
+backend/mirrai.db
+backend/storage/
+backend/server_log.txt
+backend/.tmp_pdf/
+PDF/
+
+# Security & Keys
+.env
+*.pem
+*.key
+keys/
+
+# Local Scripts & Resources
+backend/seed_test_data.py
+semple/
+tasks/
+.agents/
+pm/
+review/
+
+# IDE
+.vscode/
+.idea/
+
+# Node / Frontend
+**/node_modules/
+**/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local static/dev server logs
+frontend/*.log
+frontend/**/*.log
+
+# Root accidental lockfile (no root package.json)
+/package-lock.json
+
+# EB deployment artifact
+deploy.zip
