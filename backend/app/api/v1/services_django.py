@@ -233,6 +233,14 @@ def serialize_recommendation_row(row: FormerRecommendation) -> dict:
     uses_vector_only_policy = bool(row.regeneration_snapshot)
     sample_image_url = style_reference["sample_image_url"] or resolve_storage_reference(row.sample_image_url)
     simulation_image_url = None if uses_vector_only_policy else resolve_storage_reference(row.simulation_image_url)
+    reference_images = []
+    if sample_image_url:
+        reference_images.append(
+            {
+                "image_url": sample_image_url,
+                "description": row.style_description_snapshot or style_reference["style_description"],
+            }
+        )
     return {
         "recommendation_id": row.id,
         "batch_id": row.batch_id,
@@ -242,6 +250,7 @@ def serialize_recommendation_row(row: FormerRecommendation) -> dict:
         "style_description": row.style_description_snapshot or style_reference["style_description"],
         "keywords": row.keywords or style_reference["keywords"],
         "sample_image_url": sample_image_url,
+        "reference_images": reference_images,
         "simulation_image_url": simulation_image_url,
         "synthetic_image_url": simulation_image_url,
         "llm_explanation": row.llm_explanation or "",
