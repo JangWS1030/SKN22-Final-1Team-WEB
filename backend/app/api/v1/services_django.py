@@ -25,6 +25,7 @@ from app.models_django import (
 from app.services.age_profile import build_client_age_profile, client_matches_age_profile
 from app.services.ai_facade import generate_recommendation_batch, simulate_face_analysis
 from app.services.storage_service import resolve_storage_reference
+from app.trend_pipeline.style_collection import load_hairstyles
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,14 @@ RETRY_RECOMMENDATION_POLICY = {
     "face_total_weight": 30,
     "selection_bias": "preference_dominant",
 }
+
+
+def _seed_trend_styles(limit: int = 5) -> list[dict]:
+    try:
+        styles = load_hairstyles()
+    except FileNotFoundError:
+        return []
+    return styles[:limit]
 
 
 def build_default_survey_context(client_id: int) -> SimpleNamespace:
@@ -785,6 +794,43 @@ def get_trend_recommendations(*, days: int = 30, client: Client | None = None) -
                 "is_chosen": False,
             }
         )
+
+    if not items:
+        seed_styles = _seed_trend_styles(limit=5)
+        seeded_names = [str(item.get("style_name") or "").strip() for item in seed_styles if str(item.get("style_name") or "").strip()]
+        db_seeded = {style.name: style for style in Style.objects.filter(name__in=seeded_names)}
+
+        for rank, seed in enumerate(seed_styles, start=1):
+            style = db_seeded.get(str(seed.get("style_name") or "").strip())
+            if not style:
+                continue
+            items.append(
+                {
+                    "source": "trend",
+                    "style_id": style.id,
+                    "style_name": style.name,
+                    "style_description": style.description or str(seed.get("description") or ""),
+                    "keywords": list(seed.get("keywords") or ([style.vibe] if style.vibe else [])),
+                    "sample_image_url": resolve_storage_reference(style.image_url),
+                    "simulation_image_url": resolve_storage_reference(style.image_url),
+                    "synthetic_image_url": resolve_storage_reference(style.image_url),
+                    "llm_explanation": style.description or str(seed.get("description") or ""),
+                    "reasoning": "fallback trend catalog synced from refreshed seed data",
+                    "reasoning_snapshot": {
+                        "summary": "fallback trend catalog synced from refreshed seed data",
+                        "selection_count": 0,
+                        "days": days,
+                        "source": "trend",
+                        "trend_scope": trend_scope,
+                        "age_profile": target_age_profile,
+                        "seed_source": str(seed.get("source") or ""),
+                        "seed_last_updated": str(seed.get("last_updated") or ""),
+                    },
+                    "match_score": float(seed.get("freshness_score") or 0.0),
+                    "rank": rank,
+                    "is_chosen": False,
+                }
+            )
 
     if not items:
         styles_by_id = ensure_catalog_styles()
