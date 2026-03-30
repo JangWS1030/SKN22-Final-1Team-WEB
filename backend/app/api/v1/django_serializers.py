@@ -49,17 +49,29 @@ class StyleSerializer(serializers.ModelSerializer):
 
 
 class SurveySerializer(serializers.ModelSerializer):
-    target_length = serializers.CharField()
-    target_vibe = serializers.CharField()
-    scalp_type = serializers.CharField()
-    hair_colour = serializers.CharField()
-    budget_range = serializers.CharField()
+    target_length = serializers.CharField(required=False, allow_blank=True)
+    target_vibe = serializers.CharField(required=False, allow_blank=True)
+    scalp_type = serializers.CharField(required=False, allow_blank=True)
+    hair_colour = serializers.CharField(required=False, allow_blank=True)
+    budget_range = serializers.CharField(required=False, allow_blank=True)
+    q1 = serializers.CharField(required=False, write_only=True)
+    q2 = serializers.CharField(required=False, write_only=True)
+    q3 = serializers.CharField(required=False, write_only=True)
+    q4 = serializers.CharField(required=False, write_only=True)
+    q5 = serializers.CharField(required=False, write_only=True)
+    q6 = serializers.CharField(required=False, write_only=True)
 
     class Meta:
         model = Survey
         fields = [
             "id",
             "client",
+            "q1",
+            "q2",
+            "q3",
+            "q4",
+            "q5",
+            "q6",
             "target_length",
             "target_vibe",
             "scalp_type",

@@ -12,7 +12,7 @@ from django.utils import timezone
 from app.api.v1.admin_auth import issue_admin_token_pair
 from app.api.v1.recommendation_logic import STYLE_CATALOG
 from app.api.v1.services_django import ensure_catalog_styles, get_latest_analysis, get_latest_survey, serialize_recommendation_row
-from app.models_django import AdminAccount, CaptureRecord, ConsultationRequest, Client, ClientSessionNote, FormerRecommendation, Style, StyleSelection
+from app.models_django import AdminAccount, CaptureRecord, ConsultationRequest, Client, ClientSessionNote, Designer, FormerRecommendation, Style, StyleSelection
 from app.services.age_profile import build_client_age_profile
 from app.services.ai_facade import get_ai_health
 from app.services.storage_service import build_storage_snapshot, resolve_storage_reference
@@ -170,6 +170,20 @@ def _serialize_admin_profile(admin: AdminAccount) -> dict:
     }
 
 
+def _serialize_designer_profile(designer: Designer | None) -> dict | None:
+    if designer is None:
+        return None
+    return {
+        "designer_id": designer.id,
+        "name": designer.name,
+        "shop_id": designer.shop_id,
+        "shop_name": designer.shop.store_name,
+        "phone": designer.phone,
+        "is_active": designer.is_active,
+        "created_at": designer.created_at,
+    }
+
+
 def _client_age_fields(client: Client) -> dict:
     profile = build_client_age_profile(client) or {}
     return {
@@ -180,37 +194,35 @@ def _client_age_fields(client: Client) -> dict:
     }
 
 
-def _admin_client_ids(admin: AdminAccount | None) -> set[int] | None:
+def _scoped_client_queryset(*, admin: AdminAccount | None = None, designer: Designer | None = None):
+    queryset = Client.objects.all()
+    if designer is not None:
+        return queryset.filter(designer=designer)
+
     if admin is None:
-        return None
+        return queryset
 
-    client_ids = set(
-        ConsultationRequest.objects.filter(admin=admin).values_list("client_id", flat=True)
-    )
-    client_ids.update(
-        ClientSessionNote.objects.filter(admin=admin).values_list("client_id", flat=True)
-    )
-    return client_ids
+    return queryset.filter(
+        Q(shop=admin)
+        | Q(designer__shop=admin)
+        | Q(consultations__admin=admin)
+        | Q(session_notes__admin=admin)
+    ).distinct()
 
 
-def _scoped_client_queryset(*, admin: AdminAccount | None = None):
+def _scoped_consultation_queryset(*, admin: AdminAccount | None = None, designer: Designer | None = None):
+    queryset = ConsultationRequest.objects.all()
+    if designer is not None:
+        return queryset.filter(Q(designer=designer) | Q(client__designer=designer)).distinct()
+
     if admin is None:
-        return Client.objects.all()
+        return queryset
 
-    client_ids = _admin_client_ids(admin)
-    if not client_ids:
-        return Client.objects.all()
-    return Client.objects.filter(id__in=client_ids)
-
-
-def _scoped_consultation_queryset(*, admin: AdminAccount | None = None):
-    if admin is None:
-        return ConsultationRequest.objects.all()
-
-    client_ids = _admin_client_ids(admin)
-    if not client_ids:
-        return ConsultationRequest.objects.all()
-    return ConsultationRequest.objects.filter(admin=admin)
+    return queryset.filter(
+        Q(admin=admin)
+        | Q(client__shop=admin)
+        | Q(designer__shop=admin)
+    ).distinct()
 
 
 def get_admin_profile(*, admin: AdminAccount) -> dict:
@@ -267,16 +279,16 @@ def login_admin(*, phone: str, password: str) -> dict:
     }
 
 
-def _today_client_ids(*, admin: AdminAccount | None = None) -> set[int]:
+def _today_client_ids(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> set[int]:
     start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
-    clients = _scoped_client_queryset(admin=admin)
+    clients = _scoped_client_queryset(admin=admin, designer=designer)
     capture_ids = set(clients.filter(captures__created_at__gte=start).values_list("id", flat=True))
     consult_ids = set(clients.filter(consultations__created_at__gte=start).values_list("id", flat=True))
     return capture_ids | consult_ids
 
 
-def _latest_active_consultations(*, admin: AdminAccount | None = None) -> list[ConsultationRequest]:
-    rows = _scoped_consultation_queryset(admin=admin).filter(is_active=True).select_related("client", "selected_style", "selected_recommendation").order_by("-created_at")
+def _latest_active_consultations(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> list[ConsultationRequest]:
+    rows = _scoped_consultation_queryset(admin=admin, designer=designer).filter(is_active=True).select_related("client", "selected_style", "selected_recommendation", "designer").order_by("-created_at")
     seen: set[int] = set()
     latest_rows: list[ConsultationRequest] = []
     for row in rows:
@@ -287,13 +299,12 @@ def _latest_active_consultations(*, admin: AdminAccount | None = None) -> list[C
     return latest_rows
 
 
-def get_admin_dashboard_summary(*, admin: AdminAccount | None = None) -> dict:
+def get_admin_dashboard_summary(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
     start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
     styles_by_id = ensure_catalog_styles()
-    admin_client_ids = _admin_client_ids(admin)
     style_selection_queryset = StyleSelection.objects.filter(created_at__gte=start)
-    if admin_client_ids:
-        style_selection_queryset = style_selection_queryset.filter(client_id__in=admin_client_ids)
+    scoped_clients = _scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True)
+    style_selection_queryset = style_selection_queryset.filter(client_id__in=scoped_clients)
     top_rows = (
         style_selection_queryset
         .values("style_id")
@@ -312,7 +323,7 @@ def get_admin_dashboard_summary(*, admin: AdminAccount | None = None) -> dict:
             }
         )
 
-    active_consultations = _latest_active_consultations(admin=admin)
+    active_consultations = _latest_active_consultations(admin=admin, designer=designer)
     active_preview = [
         {
             "consultation_id": row.id,
@@ -330,7 +341,7 @@ def get_admin_dashboard_summary(*, admin: AdminAccount | None = None) -> dict:
         "status": "ready",
         "ai_engine": _ai_health(),
         "today_metrics": {
-            "unique_visitors": len(_today_client_ids(admin=admin)),
+            "unique_visitors": len(_today_client_ids(admin=admin, designer=designer)),
             "active_clients": len(active_consultations),
             "pending_consultations": sum(1 for row in active_consultations if not row.is_read),
             "confirmed_styles": style_selection_queryset.count(),
@@ -340,9 +351,9 @@ def get_admin_dashboard_summary(*, admin: AdminAccount | None = None) -> dict:
     }
 
 
-def get_active_client_sessions(*, admin: AdminAccount | None = None) -> dict:
+def get_active_client_sessions(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
     items = []
-    for row in _latest_active_consultations(admin=admin):
+    for row in _latest_active_consultations(admin=admin, designer=designer):
         recommendation_count = 0
         if row.selected_recommendation:
             recommendation_count = FormerRecommendation.objects.filter(
@@ -357,6 +368,12 @@ def get_active_client_sessions(*, admin: AdminAccount | None = None) -> dict:
                 "phone": row.client.phone,
                 "status": row.status,
                 "has_unread_consultation": not row.is_read,
+                "designer_id": row.designer_id or row.client.designer_id,
+                "designer_name": (
+                    row.designer.name
+                    if row.designer_id and row.designer
+                    else (row.client.designer.name if row.client.designer_id else None)
+                ),
                 "selected_style_name": row.selected_style.name if row.selected_style else None,
                 "recommendation_count": recommendation_count,
                 "last_activity_at": row.created_at,
@@ -365,8 +382,8 @@ def get_active_client_sessions(*, admin: AdminAccount | None = None) -> dict:
     return {"status": "ready", "items": items}
 
 
-def get_all_clients(*, query: str = "", admin: AdminAccount | None = None) -> dict:
-    queryset = _scoped_client_queryset(admin=admin).order_by("name", "id")
+def get_all_clients(*, query: str = "", admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
+    queryset = _scoped_client_queryset(admin=admin, designer=designer).select_related("shop", "designer").order_by("name", "id")
     if query:
         queryset = queryset.filter(Q(name__icontains=query) | Q(phone__icontains=query))
 
@@ -379,6 +396,10 @@ def get_all_clients(*, query: str = "", admin: AdminAccount | None = None) -> di
                 "name": client.name,
                 "gender": client.gender,
                 "phone": client.phone,
+                "shop_id": client.shop_id,
+                "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
+                "designer_id": client.designer_id,
+                "designer_name": client.designer.name if client.designer_id and client.designer else None,
                 **_client_age_fields(client),
                 "created_at": client.created_at,
                 "last_consulted_at": latest_consult.created_at if latest_consult else None,
@@ -388,20 +409,24 @@ def get_all_clients(*, query: str = "", admin: AdminAccount | None = None) -> di
     return {"status": "ready", "items": items}
 
 
-def get_client_detail(*, client: Client, admin: AdminAccount | None = None) -> dict:
-    scoped_client_ids = _admin_client_ids(admin)
+def get_client_detail(*, client: Client, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
+    scoped_client_ids = set(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
     if scoped_client_ids and client.id not in scoped_client_ids:
         raise ValueError("Client is outside the current admin scope.")
 
     latest_survey = get_latest_survey(client)
     latest_analysis = get_latest_analysis(client)
     consultation_queryset = client.consultations
-    if admin is not None and scoped_client_ids:
-        consultation_queryset = consultation_queryset.filter(admin=admin)
-    latest_consultation = consultation_queryset.order_by("-created_at").first()
-    notes_queryset = ClientSessionNote.objects.filter(client=client).select_related("admin", "consultation")
-    if admin is not None and scoped_client_ids:
-        notes_queryset = notes_queryset.filter(admin=admin)
+    if designer is not None:
+        consultation_queryset = consultation_queryset.filter(Q(designer=designer) | Q(client__designer=designer))
+    elif admin is not None and scoped_client_ids:
+        consultation_queryset = consultation_queryset.filter(Q(admin=admin) | Q(client__shop=admin) | Q(designer__shop=admin))
+    latest_consultation = consultation_queryset.select_related("designer").order_by("-created_at").first()
+    notes_queryset = ClientSessionNote.objects.filter(client=client).select_related("admin", "designer", "consultation")
+    if designer is not None:
+        notes_queryset = notes_queryset.filter(Q(designer=designer) | Q(client__designer=designer))
+    elif admin is not None and scoped_client_ids:
+        notes_queryset = notes_queryset.filter(Q(admin=admin) | Q(client__shop=admin) | Q(designer__shop=admin))
     notes = notes_queryset.order_by("-created_at")[:20]
     capture_history = client.captures.order_by("-created_at")[:20]
     analysis_history = client.face_analyses.order_by("-created_at")[:20]
@@ -415,6 +440,9 @@ def get_client_detail(*, client: Client, admin: AdminAccount | None = None) -> d
             "name": client.name,
             "gender": client.gender,
             "phone": client.phone,
+            "shop_id": client.shop_id,
+            "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
+            "designer": _serialize_designer_profile(client.designer),
             **_client_age_fields(client),
             "created_at": client.created_at,
         },
@@ -431,6 +459,8 @@ def get_client_detail(*, client: Client, admin: AdminAccount | None = None) -> d
                 "is_active": latest_consultation.is_active,
                 "is_read": latest_consultation.is_read,
                 "source": latest_consultation.source,
+                "designer_id": latest_consultation.designer_id,
+                "designer_name": latest_consultation.designer.name if latest_consultation.designer_id and latest_consultation.designer else None,
                 "created_at": latest_consultation.created_at,
                 "closed_at": latest_consultation.closed_at,
             }
@@ -443,6 +473,8 @@ def get_client_detail(*, client: Client, admin: AdminAccount | None = None) -> d
                 "consultation_id": note.consultation_id,
                 "admin_id": note.admin_id,
                 "admin_name": note.admin.name if note.admin else None,
+                "designer_id": note.designer_id,
+                "designer_name": note.designer.name if note.designer else None,
                 "content": note.content,
                 "created_at": note.created_at,
             }
@@ -451,15 +483,15 @@ def get_client_detail(*, client: Client, admin: AdminAccount | None = None) -> d
     }
 
 
-def get_client_recommendation_report(*, client: Client, admin: AdminAccount | None = None) -> dict:
-    scoped_client_ids = _admin_client_ids(admin)
+def get_client_recommendation_report(*, client: Client, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
+    scoped_client_ids = set(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
     if scoped_client_ids and client.id not in scoped_client_ids:
         raise ValueError("Client is outside the current admin scope.")
 
     latest_analysis = get_latest_analysis(client)
     latest_survey = get_latest_survey(client)
     recommendation_queryset = FormerRecommendation.objects.filter(client=client, source="generated")
-    if admin is not None and scoped_client_ids:
+    if (admin is not None or designer is not None) and scoped_client_ids:
         recommendation_queryset = recommendation_queryset.filter(client_id__in=scoped_client_ids)
     latest_generated = recommendation_queryset.order_by("-created_at").first()
     batch_rows = []
@@ -485,19 +517,29 @@ def get_client_recommendation_report(*, client: Client, admin: AdminAccount | No
     }
 
 
-def create_client_note(*, client: Client, consultation_id: int, content: str, admin: AdminAccount | None = None) -> dict:
+def create_client_note(*, client: Client, consultation_id: int, content: str, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
     consultation = ConsultationRequest.objects.filter(id=consultation_id, client=client).first()
     if not consultation:
         raise ValueError("The consultation session could not be found.")
 
     if admin is not None and consultation.admin_id is None:
         consultation.admin = admin
-        consultation.save(update_fields=["admin"])
+    if designer is not None and consultation.designer_id is None:
+        consultation.designer = designer
+    if admin is not None or designer is not None:
+        update_fields = []
+        if admin is not None and consultation.admin_id == admin.id:
+            update_fields.append("admin")
+        if designer is not None and consultation.designer_id == designer.id:
+            update_fields.append("designer")
+        if update_fields:
+            consultation.save(update_fields=update_fields)
 
     note = ClientSessionNote.objects.create(
         consultation=consultation,
         client=client,
         admin=admin,
+        designer=designer,
         content=content.strip(),
     )
     consultation.is_read = True
@@ -511,13 +553,15 @@ def create_client_note(*, client: Client, consultation_id: int, content: str, ad
     }
 
 
-def close_consultation_session(*, consultation_id: int, admin: AdminAccount | None = None) -> dict:
+def close_consultation_session(*, consultation_id: int, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
     consultation = ConsultationRequest.objects.filter(id=consultation_id).select_related("client").first()
     if not consultation:
         raise ValueError("The consultation session could not be found.")
 
     if admin is not None and consultation.admin_id is None:
         consultation.admin = admin
+    if designer is not None and consultation.designer_id is None:
+        consultation.designer = designer
 
     consultation.is_active = False
     consultation.is_read = True
@@ -526,6 +570,8 @@ def close_consultation_session(*, consultation_id: int, admin: AdminAccount | No
     update_fields = ["is_active", "is_read", "status", "closed_at"]
     if admin is not None and consultation.admin_id == admin.id:
         update_fields.append("admin")
+    if designer is not None and consultation.designer_id == designer.id:
+        update_fields.append("designer")
     consultation.save(update_fields=update_fields)
     return {
         "status": "success",
@@ -568,11 +614,12 @@ def _selection_matches_snapshot(selection: StyleSelection, filters: dict) -> boo
     return True
 
 
-def _build_trend_report_snapshot(*, days: int, filters: dict, admin: AdminAccount | None, total_records: int, filtered_records: int, ranking_count: int, unique_clients: int) -> dict:
+def _build_trend_report_snapshot(*, days: int, filters: dict, admin: AdminAccount | None, designer: Designer | None, total_records: int, filtered_records: int, ranking_count: int, unique_clients: int) -> dict:
     return {
         "days": days,
         "filters": filters,
         "admin_scoped": admin is not None,
+        "designer_scoped": designer is not None,
         "total_records": total_records,
         "filtered_records": filtered_records,
         "ranking_count": ranking_count,
@@ -580,23 +627,24 @@ def _build_trend_report_snapshot(*, days: int, filters: dict, admin: AdminAccoun
     }
 
 
-def _build_style_report_snapshot(*, style_id: int, days: int, admin: AdminAccount | None, recent_count: int, chosen_count: int, related_count: int) -> dict:
+def _build_style_report_snapshot(*, style_id: int, days: int, admin: AdminAccount | None, designer: Designer | None, recent_count: int, chosen_count: int, related_count: int) -> dict:
     return {
         "style_id": style_id,
         "days": days,
         "admin_scoped": admin is not None,
+        "designer_scoped": designer is not None,
         "recent_selection_count": recent_count,
         "chosen_count": chosen_count,
         "related_style_count": related_count,
     }
 
 
-def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin: AdminAccount | None = None) -> dict:
+def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
     filters = filters or {}
     cutoff = timezone.now() - timezone.timedelta(days=days)
     selections_queryset = StyleSelection.objects.filter(created_at__gte=cutoff).select_related("client").order_by("-created_at")
-    scoped_client_ids = _admin_client_ids(admin)
-    if admin is not None and scoped_client_ids:
+    scoped_client_ids = list(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
+    if admin is not None or designer is not None:
         selections_queryset = selections_queryset.filter(client_id__in=scoped_client_ids)
     selections = list(selections_queryset)
     filtered = [row for row in selections if _selection_matches_snapshot(row, filters)]
@@ -639,18 +687,20 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         days=days,
         filters=filters,
         admin=admin,
+        designer=designer,
         total_records=len(selections),
         filtered_records=len(filtered),
         ranking_count=len(ranking),
         unique_clients=unique_clients,
     )
     logger.info(
-        "[trend_report] days=%s total=%s filtered=%s ranking=%s admin_scoped=%s",
+        "[trend_report] days=%s total=%s filtered=%s ranking=%s admin_scoped=%s designer_scoped=%s",
         days,
         len(selections),
         len(filtered),
         len(ranking),
         admin is not None,
+        designer is not None,
     )
     return {
         "status": "ready",
@@ -659,7 +709,7 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         "kpi": {
             "unique_clients": unique_clients,
             "total_confirmations": len(filtered),
-            "active_consultations": len(_latest_active_consultations(admin=admin)),
+            "active_consultations": len(_latest_active_consultations(admin=admin, designer=designer)),
         },
         "ranking": ranking,
         "distribution": distribution,
@@ -680,13 +730,13 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
     }
 
 
-def get_style_report(*, style_id: int, days: int = 7, admin: AdminAccount | None = None) -> dict:
+def get_style_report(*, style_id: int, days: int = 7, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
     style_data = _style_snapshot(style_id)
     cutoff = timezone.now() - timezone.timedelta(days=days)
     recent_queryset = StyleSelection.objects.filter(style_id=style_id, created_at__gte=cutoff)
     chosen_queryset = FormerRecommendation.objects.filter(style_id_snapshot=style_id, is_chosen=True)
-    scoped_client_ids = _admin_client_ids(admin)
-    if admin is not None and scoped_client_ids:
+    scoped_client_ids = list(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
+    if admin is not None or designer is not None:
         recent_queryset = recent_queryset.filter(client_id__in=scoped_client_ids)
         chosen_queryset = chosen_queryset.filter(client_id__in=scoped_client_ids)
     recent_count = recent_queryset.count()
@@ -710,18 +760,20 @@ def get_style_report(*, style_id: int, days: int = 7, admin: AdminAccount | None
         style_id=style_id,
         days=days,
         admin=admin,
+        designer=designer,
         recent_count=recent_count,
         chosen_count=chosen_count,
         related_count=len(related),
     )
     logger.info(
-        "[style_report] style_id=%s days=%s recent=%s chosen=%s related=%s admin_scoped=%s",
+        "[style_report] style_id=%s days=%s recent=%s chosen=%s related=%s admin_scoped=%s designer_scoped=%s",
         style_id,
         days,
         recent_count,
         chosen_count,
         len(related),
         admin is not None,
+        designer is not None,
     )
     return {
         "status": "ready",

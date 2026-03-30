@@ -123,6 +123,100 @@ def get_latest_capture(client: Client):
     )
 
 
+def _normalize_text_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _survey_payload_from_gender_questions(*, client: Client, payload: dict) -> dict | None:
+    q1 = _normalize_text_value(payload.get("q1"))
+    q2 = _normalize_text_value(payload.get("q2"))
+    q3 = _normalize_text_value(payload.get("q3"))
+    q4 = _normalize_text_value(payload.get("q4"))
+    q5 = _normalize_text_value(payload.get("q5"))
+    q6 = _normalize_text_value(payload.get("q6"))
+
+    if not any((q1, q2, q3, q4, q5, q6)):
+        return None
+
+    gender = _normalize_text_value(getattr(client, "gender", None)).lower()
+
+    if gender == "male":
+        target_length_map = {
+            "아주 짧고 깔끔하게": "short",
+            "너무 짧지 않게 자연스럽게": "medium",
+            "길이감 있게 남기고 싶음": "long",
+        }
+        target_vibe_map = {
+            "단정한": "chic",
+            "부드러운": "natural",
+            "트렌디한": "chic",
+        }
+        scalp_type_map = {
+            "펌 없이 깔끔하게": "straight",
+            "자연스러운 볼륨 정도": "waved",
+            "컬감이 느껴지는 스타일": "curly",
+        }
+    else:
+        target_length_map = {
+            "짧게": "short",
+            "중간 길이": "medium",
+            "길게": "long",
+            "유지": "medium",
+        }
+        target_vibe_map = {
+            "내추럴한": "natural",
+            "세련된": "chic",
+            "사랑스러운": "cute",
+            "고급스러운": "elegant",
+        }
+        scalp_type_map = {
+            "생머리 느낌": "straight",
+            "끝선 위주 자연스러운 컬": "waved",
+            "전체적으로 웨이브감": "curly",
+        }
+
+    mapped_payload = {
+        "target_length": target_length_map.get(q1, "unknown"),
+        "target_vibe": target_vibe_map.get(q6 if gender == "male" else q5, "unknown"),
+        "scalp_type": scalp_type_map.get(q5 if gender == "male" else q4, "unknown"),
+        "hair_colour": "unknown",
+        "budget_range": "unknown",
+    }
+
+    logger.info(
+        "[survey_question_mapping] client_id=%s gender=%s target_length=%s target_vibe=%s scalp_type=%s",
+        client.id,
+        gender or "unknown",
+        mapped_payload["target_length"],
+        mapped_payload["target_vibe"],
+        mapped_payload["scalp_type"],
+    )
+    return mapped_payload
+
+
+def normalize_survey_payload(*, client: Client, payload: dict) -> dict:
+    if any(payload.get(field) for field in ("target_length", "target_vibe", "scalp_type", "hair_colour", "budget_range")):
+        return {
+            "target_length": payload.get("target_length"),
+            "target_vibe": payload.get("target_vibe"),
+            "scalp_type": payload.get("scalp_type"),
+            "hair_colour": payload.get("hair_colour"),
+            "budget_range": payload.get("budget_range"),
+        }
+
+    mapped_payload = _survey_payload_from_gender_questions(client=client, payload=payload)
+    if mapped_payload is not None:
+        return mapped_payload
+
+    return {
+        "target_length": payload.get("target_length"),
+        "target_vibe": payload.get("target_vibe"),
+        "scalp_type": payload.get("scalp_type"),
+        "hair_colour": payload.get("hair_colour"),
+        "budget_range": payload.get("budget_range"),
+    }
+
+
 def get_latest_capture_attempt(client: Client):
     return CaptureRecord.objects.filter(client=client).order_by("-created_at").first()
 
@@ -184,21 +278,22 @@ def build_recommendation_regeneration_snapshot(
 
 
 def upsert_survey(client: Client, payload: dict) -> Survey:
+    normalized_payload = normalize_survey_payload(client=client, payload=payload)
     preference_vector = build_preference_vector(
-        target_length=payload.get("target_length"),
-        target_vibe=payload.get("target_vibe"),
-        scalp_type=payload.get("scalp_type"),
-        hair_colour=payload.get("hair_colour"),
-        budget_range=payload.get("budget_range"),
+        target_length=normalized_payload.get("target_length"),
+        target_vibe=normalized_payload.get("target_vibe"),
+        scalp_type=normalized_payload.get("scalp_type"),
+        hair_colour=normalized_payload.get("hair_colour"),
+        budget_range=normalized_payload.get("budget_range"),
     )
     survey, _ = Survey.objects.update_or_create(
         client=client,
         defaults={
-            "target_length": payload.get("target_length"),
-            "target_vibe": payload.get("target_vibe"),
-            "scalp_type": payload.get("scalp_type"),
-            "hair_colour": payload.get("hair_colour"),
-            "budget_range": payload.get("budget_range"),
+            "target_length": normalized_payload.get("target_length"),
+            "target_vibe": normalized_payload.get("target_vibe"),
+            "scalp_type": normalized_payload.get("scalp_type"),
+            "hair_colour": normalized_payload.get("hair_colour"),
+            "budget_range": normalized_payload.get("budget_range"),
             "preference_vector": preference_vector,
         },
     )
@@ -922,6 +1017,9 @@ def confirm_style_selection(
     selected_style = None
     selected_row = None
     admin = AdminAccount.objects.filter(id=admin_id).first() if admin_id else None
+    if admin is None:
+        admin = client.shop
+    designer = client.designer
     if recommendation_id is not None:
         selected_row = FormerRecommendation.objects.filter(id=recommendation_id, client=client).first()
         if not selected_row:
@@ -1022,6 +1120,7 @@ def confirm_style_selection(
         selected_style=(None if direct_consultation else selected_style),
         selected_recommendation=selected_row,
         admin=admin,
+        designer=designer,
         source=source,
         survey_snapshot=survey_snapshot,
         analysis_data_snapshot=analysis_snapshot,

@@ -7,6 +7,24 @@ class Client(models.Model):
     name = models.CharField(max_length=50)
     gender = models.CharField(max_length=10, null=True, blank=True)
     phone = models.CharField(max_length=20, unique=True, db_index=True)
+    shop = models.ForeignKey(
+        "AdminAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clients",
+        db_index=True,
+    )
+    designer = models.ForeignKey(
+        "Designer",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clients",
+        db_index=True,
+    )
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    assignment_source = models.CharField(max_length=30, null=True, blank=True)
     age_input = models.PositiveSmallIntegerField(null=True, blank=True)
     birth_year_estimate = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -39,6 +57,26 @@ class AdminAccount(models.Model):
 
     def __str__(self):
         return f"{self.store_name} - {self.name}"
+
+
+class Designer(models.Model):
+    shop = models.ForeignKey(
+        AdminAccount,
+        on_delete=models.CASCADE,
+        related_name="designers",
+        db_index=True,
+    )
+    name = models.CharField(max_length=50)
+    phone = models.CharField(max_length=20, null=True, blank=True, db_index=True)
+    pin_hash = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "designers"
+
+    def __str__(self):
+        return f"{self.shop.store_name} - {self.name}"
 
 
 class Style(models.Model):
@@ -198,6 +236,13 @@ class ConsultationRequest(models.Model):
         blank=True,
         related_name="consultations",
     )
+    designer = models.ForeignKey(
+        "Designer",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="consultations",
+    )
     selected_style = models.ForeignKey(Style, on_delete=models.SET_NULL, null=True, blank=True)
     selected_recommendation = models.ForeignKey(
         FormerRecommendation,
@@ -233,6 +278,13 @@ class ClientSessionNote(models.Model):
     )
     admin = models.ForeignKey(
         AdminAccount,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="session_notes",
+    )
+    designer = models.ForeignKey(
+        "Designer",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

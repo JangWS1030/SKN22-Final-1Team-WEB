@@ -34,6 +34,7 @@ from .admin_views import (
     AllClientsView,
     ConsultationCloseView,
     ConsultationNoteView,
+    AdminChatbotAskView,
     StyleReportView,
 )
 
@@ -68,6 +69,7 @@ urlpatterns = [
     path('admin/clients/recommendations/', AdminClientRecommendationView.as_view(), name='admin-client-recommendations'),
     path('admin/consultations/note/', ConsultationNoteView.as_view(), name='admin-consultation-note'),
     path('admin/consultations/close/', ConsultationCloseView.as_view(), name='admin-consultation-close'),
+    path('admin/chatbot/ask/', AdminChatbotAskView.as_view(), name='admin-chatbot-ask'),
     path('admin/trend-report/', AdminTrendReportView.as_view(), name='admin-trend-report'),
     path('admin/style-report/', StyleReportView.as_view(), name='admin-style-report'),
 ]

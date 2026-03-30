@@ -16,6 +16,7 @@ from app.api.v1.admin_serializers import (
     AdminTrendFilterSerializer,
     ConsultationCloseSerializer,
     ConsultationNoteCreateSerializer,
+    ChatbotAskSerializer,
     RefreshTokenSerializer,
 )
 from app.api.v1.admin_services import (
@@ -32,11 +33,25 @@ from app.api.v1.admin_services import (
     login_admin,
     register_admin,
 )
-from app.models_django import AdminAccount, CaptureRecord, Client, ConsultationRequest
-from app.session_state import get_session_admin
+from app.models_django import AdminAccount, CaptureRecord, Client, ConsultationRequest, Designer
+from app.session_state import get_session_admin, get_session_designer, set_admin_session
+from app.services.chatbot_service import build_admin_chatbot_reply
 
 
 logger = logging.getLogger(__name__)
+
+
+def _build_admin_register_errors(message: str) -> dict[str, list[str]]:
+    lowered = message.lower()
+    if "phone number" in lowered:
+        return {"phone": [message]}
+    if "business registration number" in lowered:
+        return {"business_number": [message]}
+    return {"non_field_errors": [message]}
+
+
+def _build_admin_login_errors(message: str) -> dict[str, list[str]]:
+    return {"non_field_errors": [message]}
 
 
 def _resolve_request_admin(request) -> AdminAccount | None:
@@ -45,11 +60,23 @@ def _resolve_request_admin(request) -> AdminAccount | None:
     return get_session_admin(request=request)
 
 
-def _legacy_admin_required(request):
+def _resolve_request_designer(request) -> Designer | None:
+    return get_session_designer(request=request)
+
+
+def _resolve_request_staff(request) -> tuple[AdminAccount | None, Designer | None]:
     admin = _resolve_request_admin(request)
+    designer = _resolve_request_designer(request)
+    if admin is None and designer is not None:
+        admin = designer.shop
+    return admin, designer
+
+
+def _legacy_staff_required(request):
+    admin, designer = _resolve_request_staff(request)
     if admin is None:
         return None, detail_response("Admin login is required.", status_code=status.HTTP_401_UNAUTHORIZED)
-    return admin, None
+    return (admin, designer), None
 
 
 class AdminProtectedAPIView(CompatEnvelopeAPIView):
@@ -65,7 +92,18 @@ class AdminRegisterView(CompatEnvelopeAPIView):
         try:
             payload = register_admin(payload=serializer.validated_data)
         except ValueError as exc:
-            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+            message = str(exc)
+            return detail_response(
+                message,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_code="validation_error",
+                errors=_build_admin_register_errors(message),
+            )
+        admin = AdminAccount.objects.filter(id=payload["admin_id"], is_active=True).first()
+        if admin is not None:
+            set_admin_session(request=request, admin=admin)
+            payload["redirect"] = "/partner/dashboard/"
+            payload["session_type"] = "admin"
         return Response(payload, status=status.HTTP_201_CREATED)
 
 
@@ -77,7 +115,18 @@ class AdminLoginView(CompatEnvelopeAPIView):
         try:
             payload = login_admin(**serializer.validated_data)
         except ValueError as exc:
-            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+            message = str(exc)
+            return detail_response(
+                message,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_code="validation_error",
+                errors=_build_admin_login_errors(message),
+            )
+        admin = AdminAccount.objects.filter(id=payload["admin"]["admin_id"], is_active=True).first()
+        if admin is not None:
+            set_admin_session(request=request, admin=admin)
+            payload["redirect"] = "/partner/dashboard/"
+            payload["session_type"] = "admin"
         return Response(payload)
 
 
@@ -129,11 +178,12 @@ class LegacyAllClientsView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT},
     )
     def get(self, request):
-        admin, error_response = _legacy_admin_required(request)
+        staff, error_response = _legacy_staff_required(request)
         if error_response:
             return error_response
+        admin, designer = staff
 
-        payload = get_all_clients(query=request.query_params.get("q", ""), admin=admin)
+        payload = get_all_clients(query=request.query_params.get("q", ""), admin=admin, designer=designer)
         items = [
             {
                 "id": item["client_id"],
@@ -166,13 +216,14 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
     )
     def get(self, request, pk: int):
-        admin, error_response = _legacy_admin_required(request)
+        staff, error_response = _legacy_staff_required(request)
         if error_response:
             return error_response
+        admin, designer = staff
 
         client = get_object_or_404(Client, id=pk)
         try:
-            payload = get_client_detail(client=client, admin=admin)
+            payload = get_client_detail(client=client, admin=admin, designer=designer)
         except ValueError as exc:
             return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
 
@@ -275,13 +326,14 @@ class AdminTrendReportView(AdminProtectedAPIView):
 class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
     @extend_schema(summary="Legacy trend report for template dashboard", responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def get(self, request):
-        admin, error_response = _legacy_admin_required(request)
+        staff, error_response = _legacy_staff_required(request)
         if error_response:
             return error_response
+        admin, designer = staff
 
         days = int(request.query_params.get("days", 7))
-        trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin)
-        clients_payload = get_all_clients(admin=admin)
+        trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=designer)
+        clients_payload = get_all_clients(admin=admin, designer=designer)
         client_ids = [item["client_id"] for item in clients_payload["items"]]
         client_filter = {"client_id__in": client_ids} if client_ids else {}
         start_date = timezone.localdate() - timezone.timedelta(days=days - 1)
@@ -351,4 +403,36 @@ class StyleReportView(AdminProtectedAPIView):
             days,
         )
         return Response(get_style_report(style_id=style_id, days=days, admin=request.user))
+
+
+class AdminChatbotAskView(CompatEnvelopeAPIView):
+    authentication_classes = [AdminTokenAuthentication]
+
+    @extend_schema(
+        summary="Ask admin chatbot for styling guidance",
+        request=ChatbotAskSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        admin, designer = _resolve_request_staff(request)
+        if admin is None:
+            return detail_response("Admin login is required.", status_code=status.HTTP_401_UNAUTHORIZED)
+
+        serializer = ChatbotAskSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = build_admin_chatbot_reply(
+            message=serializer.validated_data["message"],
+            admin_name=(designer.name if designer is not None else admin.name),
+            store_name=admin.store_name,
+        )
+        logger.info(
+            "[admin_chatbot_reply] admin_id=%s designer_id=%s store_name=%s message=%s",
+            admin.id,
+            (designer.id if designer is not None else None),
+            admin.store_name,
+            serializer.validated_data["message"][:120],
+        )
+        payload["actor_type"] = "designer" if designer is not None else "admin"
+        payload["designer_id"] = designer.id if designer is not None else None
+        return Response(payload)
 

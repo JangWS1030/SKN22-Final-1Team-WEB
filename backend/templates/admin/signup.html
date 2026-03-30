@@ -319,8 +319,8 @@
         const data = await response.json();
         
         if (response.ok && data.status === 'success') {
-          alert("회원가입이 완료되었습니다! 로그인 페이지로 이동합니다.");
-          window.location.href = "{% url 'partner_login' %}";
+          alert("회원가입이 완료되었습니다! 대시보드로 이동합니다.");
+          window.location.href = data.redirect || "{% url 'partner_dashboard' %}";
         } else {
           // Handle field-specific errors if available
           if (data.errors && typeof data.errors === 'object') {

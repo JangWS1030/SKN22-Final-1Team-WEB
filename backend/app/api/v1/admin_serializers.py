@@ -49,6 +49,10 @@ class ConsultationCloseSerializer(serializers.Serializer):
     consultation_id = serializers.IntegerField()
 
 
+class ChatbotAskSerializer(serializers.Serializer):
+    message = serializers.CharField(allow_blank=False, trim_whitespace=True)
+
+
 class AdminTrendFilterSerializer(serializers.Serializer):
     days = serializers.IntegerField(required=False, default=7)
     target_length = serializers.CharField(required=False, allow_blank=True)
