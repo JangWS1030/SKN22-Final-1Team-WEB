@@ -21,7 +21,7 @@ class ContractPreparationSnapshotTests(APITestCase):
         payload = get_error_contract_snapshot()
 
         self.assertEqual(payload["mode"], "compat_envelope")
-        self.assertEqual(payload["fields"], ["detail", "message", "error_code"])
+        self.assertEqual(payload["fields"], ["detail", "message", "error_code", "errors"])
         self.assertTrue(payload["envelope_supported"])
         self.assertTrue(payload["detail_backward_compatible"])
 
@@ -32,6 +32,18 @@ class ContractPreparationSnapshotTests(APITestCase):
         self.assertEqual(response.data["error_code"], "not_found")
         self.assertEqual(response.data["message"], "Client not found.")
         self.assertEqual(response.data["detail"], "Client not found.")
+
+    def test_detail_response_includes_field_errors_when_provided(self):
+        response = detail_response(
+            "Validation failed.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="validation_error",
+            errors={"phone": ["이미 등록된 번호입니다."]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "validation_error")
+        self.assertEqual(response.data["errors"]["phone"], ["이미 등록된 번호입니다."])
 
     def test_admin_auth_policy_snapshot_reports_refresh_support(self):
         payload = get_admin_auth_policy_snapshot()

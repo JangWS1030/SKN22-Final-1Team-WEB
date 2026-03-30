@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from rest_framework import exceptions, status
 from rest_framework.response import Response
@@ -26,7 +26,7 @@ DEFAULT_ERROR_CODE_BY_STATUS: dict[int, str] = {
 def get_error_contract_snapshot() -> dict:
     return {
         "mode": "compat_envelope",
-        "fields": ["detail", "message", "error_code"],
+        "fields": ["detail", "message", "error_code", "errors"],
         "envelope_supported": True,
         "detail_backward_compatible": True,
     }
@@ -41,6 +41,7 @@ def detail_response(
     *,
     status_code: int = status.HTTP_400_BAD_REQUEST,
     error_code: str | None = None,
+    errors: Mapping[str, object] | None = None,
     **extra: object,
 ) -> Response:
     resolved_error_code = error_code or _default_error_code(status_code)
@@ -55,6 +56,8 @@ def detail_response(
         "message": message,
         "error_code": resolved_error_code,
     }
+    if errors:
+        payload["errors"] = _normalize_error_mapping(errors)
     payload.update(extra)
     return Response(payload, status=status_code)
 
@@ -69,6 +72,35 @@ def _extract_exception_message(detail: object) -> str:
     if isinstance(detail, Mapping):
         return "Validation failed."
     return "Request failed."
+
+
+def _normalize_error_messages(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        messages: list[str] = []
+        for item in value:
+            messages.extend(_normalize_error_messages(item))
+        return [message for message in messages if message]
+    if isinstance(value, Mapping):
+        messages: list[str] = []
+        for item in value.values():
+            messages.extend(_normalize_error_messages(item))
+        return [message for message in messages if message]
+    if value is None:
+        return []
+    return [str(value)]
+
+
+def _normalize_error_mapping(detail: Mapping[str, object]) -> dict[str, list[str]]:
+    normalized: dict[str, list[str]] = {}
+    for key, value in detail.items():
+        if key in {"detail", "message", "error_code", "errors"}:
+            continue
+        messages = _normalize_error_messages(value)
+        if messages:
+            normalized[str(key)] = messages
+    return normalized
 
 
 class CompatEnvelopeAPIView(APIView):
@@ -87,6 +119,7 @@ class CompatEnvelopeAPIView(APIView):
 
         if isinstance(exc, exceptions.ValidationError):
             message = _extract_exception_message(data)
+            errors = _normalize_error_mapping(data) if isinstance(data, Mapping) else {}
             logger.warning(
                 "[api_exception] view=%s status=%s error_code=validation_error message=%s",
                 self.__class__.__name__,
@@ -98,6 +131,8 @@ class CompatEnvelopeAPIView(APIView):
                 "message": message,
                 "error_code": "validation_error",
             }
+            if errors:
+                response.data["errors"] = errors
             return response
 
         if isinstance(data, Mapping):

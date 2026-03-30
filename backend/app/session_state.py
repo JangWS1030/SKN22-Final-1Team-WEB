@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from django.http import HttpRequest
 
-from app.models_django import AdminAccount, Client
+from app.models_django import AdminAccount, Client, Designer
 
 
 CUSTOMER_ID_SESSION_KEY = "customer_id"
 CUSTOMER_NAME_SESSION_KEY = "customer_name"
 ADMIN_ID_SESSION_KEY = "admin_id"
 ADMIN_NAME_SESSION_KEY = "admin_name"
+DESIGNER_ID_SESSION_KEY = "designer_id"
+DESIGNER_NAME_SESSION_KEY = "designer_name"
 
 
 def set_customer_session(*, request: HttpRequest, client: Client) -> None:
@@ -47,3 +49,22 @@ def get_session_admin(*, request: HttpRequest) -> AdminAccount | None:
     if not admin_id:
         return None
     return AdminAccount.objects.filter(id=admin_id, is_active=True).first()
+
+
+def set_designer_session(*, request: HttpRequest, designer: Designer) -> None:
+    request.session[DESIGNER_ID_SESSION_KEY] = designer.id
+    request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
+    request.session.modified = True
+
+
+def clear_designer_session(*, request: HttpRequest) -> None:
+    request.session.pop(DESIGNER_ID_SESSION_KEY, None)
+    request.session.pop(DESIGNER_NAME_SESSION_KEY, None)
+    request.session.modified = True
+
+
+def get_session_designer(*, request: HttpRequest) -> Designer | None:
+    designer_id = request.session.get(DESIGNER_ID_SESSION_KEY)
+    if not designer_id:
+        return None
+    return Designer.objects.select_related("shop").filter(id=designer_id, is_active=True).first()

@@ -5,14 +5,17 @@ from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from app.models_django import AdminAccount, Client
+from app.models_django import AdminAccount, Client, Designer
 from app.session_state import (
     clear_admin_session,
     clear_customer_session,
+    clear_designer_session,
     get_session_admin,
     get_session_customer,
+    get_session_designer,
     set_admin_session,
     set_customer_session,
+    set_designer_session,
 )
 
 
@@ -36,6 +39,39 @@ def _render_customer_login(request: HttpRequest, *, error_message: str | None = 
     return render(request, "customer/index.html", {"form_error": error_message})
 
 
+def _resolve_active_shop_and_designer(*, request: HttpRequest) -> tuple[AdminAccount | None, Designer | None]:
+    designer = get_session_designer(request=request)
+    admin = get_session_admin(request=request)
+    if designer is not None:
+        return designer.shop, designer
+    return admin, None
+
+
+def _resolve_client_assignment_defaults(*, request: HttpRequest) -> dict:
+    shop, designer = _resolve_active_shop_and_designer(request=request)
+    defaults: dict = {}
+    if shop is not None:
+        defaults["shop"] = shop
+
+    if designer is not None:
+        defaults["designer"] = designer
+        defaults["assigned_at"] = timezone.now()
+        defaults["assignment_source"] = "designer_session"
+        return defaults
+
+    if shop is None:
+        return defaults
+
+    active_designers = list(shop.designers.filter(is_active=True).order_by("id")[:2])
+    if len(active_designers) == 1:
+        defaults["designer"] = active_designers[0]
+        defaults["assigned_at"] = timezone.now()
+        defaults["assignment_source"] = "auto_single_designer"
+    elif active_designers:
+        defaults["assignment_source"] = "shop_session_unassigned"
+    return defaults
+
+
 def health_check(request):
     return JsonResponse({"status": "django_running", "framework": "Django"})
 
@@ -53,18 +89,21 @@ def client_login_page(request):
         if not name or not phone:
             return _render_customer_login(request, error_message="Name and phone are required.")
 
+        defaults = {
+            "name": name,
+            "gender": gender,
+            "age_input": (
+                int(request.POST.get("age"))
+                if (request.POST.get("age") or "").isdigit()
+                else None
+            ),
+            "birth_year_estimate": birth_year_estimate,
+        }
+        defaults.update(_resolve_client_assignment_defaults(request=request))
+
         client, _ = Client.objects.update_or_create(
             phone=phone,
-            defaults={
-                "name": name,
-                "gender": gender,
-                "age_input": (
-                    int(request.POST.get("age"))
-                    if (request.POST.get("age") or "").isdigit()
-                    else None
-                ),
-                "birth_year_estimate": birth_year_estimate,
-            },
+            defaults=defaults,
         )
         set_customer_session(request=request, client=client)
         
@@ -114,9 +153,21 @@ def admin_signup_page(request):
 
 def admin_dashboard_page(request):
     admin = get_session_admin(request=request)
+    designer = get_session_designer(request=request)
+    if not admin and designer is not None:
+        admin = designer.shop
     if not admin:
         return redirect("partner_index")
-    return render(request, "admin/index.html", {"is_dashboard": True, "admin": admin})
+    return render(
+        request,
+        "admin/index.html",
+        {
+            "is_dashboard": True,
+            "admin": admin,
+            "designer": designer,
+            "is_designer_session": bool(designer),
+        },
+    )
 
 
 def partner_verify(request):
@@ -127,6 +178,25 @@ def partner_verify(request):
     if not re.fullmatch(r"\d{4}", pin):
         return JsonResponse({"status": "error", "message": "PIN must be 4 digits."}, status=400)
 
+    designer = None
+    for candidate in Designer.objects.select_related("shop").filter(is_active=True).order_by("-created_at"):
+        if check_password(pin, candidate.pin_hash):
+            designer = candidate
+            break
+
+    if designer is not None:
+        set_admin_session(request=request, admin=designer.shop)
+        set_designer_session(request=request, designer=designer)
+        return JsonResponse(
+            {
+                "status": "success",
+                "redirect": "/partner/dashboard/",
+                "session_type": "designer",
+                "shop_id": designer.shop_id,
+                "designer_id": designer.id,
+            }
+        )
+
     admin = None
     for candidate in AdminAccount.objects.filter(is_active=True).order_by("-created_at"):
         if check_password(pin, candidate.password_hash):
@@ -136,13 +206,15 @@ def partner_verify(request):
     if admin is None:
         return JsonResponse({"status": "error", "message": "PIN did not match any active admin."}, status=401)
 
+    clear_designer_session(request=request)
     set_admin_session(request=request, admin=admin)
-    return JsonResponse({"status": "success", "redirect": "/partner/dashboard/"})
+    return JsonResponse({"status": "success", "redirect": "/partner/dashboard/", "session_type": "admin"})
 
 
 def logout_page(request):
     clear_customer_session(request=request)
     clear_admin_session(request=request)
+    clear_designer_session(request=request)
     return redirect("index")
 
 
