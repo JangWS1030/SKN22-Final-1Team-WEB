@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import io
 import math
+from functools import lru_cache
+from pathlib import Path
 
 import cv2
 import numpy as np
 from django.conf import settings
+from PIL import Image, ImageOps
 
 
 _FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -13,8 +17,14 @@ _SMILE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smil
 
 
 def _decode_image(processed_bytes: bytes) -> np.ndarray | None:
-    image_array = np.frombuffer(processed_bytes, dtype=np.uint8)
-    return cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    try:
+        pil_image = Image.open(io.BytesIO(processed_bytes))
+        pil_image = ImageOps.exif_transpose(pil_image).convert("RGB")
+    except Exception:
+        image_array = np.frombuffer(processed_bytes, dtype=np.uint8)
+        return cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    rgb_array = np.array(pil_image)
+    return cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
 
 
 def _largest_face(faces) -> tuple[int, int, int, int] | None:
@@ -51,27 +61,44 @@ def _point_payload(
     }
 
 
-def _apply_text_watermark(image: np.ndarray, text: str | None) -> tuple[np.ndarray, bool]:
-    if not text:
-        return image, False
+@lru_cache(maxsize=1)
+def _load_watermark_asset() -> np.ndarray | None:
+    configured_path = getattr(settings, "MIRRAI_WATERMARK_IMAGE", "static/branding/mirrai_wordmark_primary.png")
+    watermark_path = Path(settings.BASE_DIR) / configured_path
+    if not watermark_path.exists():
+        return None
+    watermark = cv2.imread(str(watermark_path), cv2.IMREAD_UNCHANGED)
+    if watermark is None or watermark.shape[-1] != 4:
+        return None
+    return watermark
+
+
+def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | None]:
+    watermark = _load_watermark_asset()
+    if watermark is None:
+        return image, False, None
 
     height, width = image.shape[:2]
-    overlay = image.copy()
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = max(0.85, min(width, height) / 900.0)
-    thickness = max(2, int(round(min(width, height) / 280.0)))
-    positions = [
-        (int(width * 0.06), int(height * 0.18)),
-        (int(width * 0.42), int(height * 0.55)),
-        (int(width * 0.12), int(height * 0.88)),
-    ]
+    max_logo_width = max(120, int(width * 0.38))
+    scale = max_logo_width / float(watermark.shape[1])
+    resized_width = max(1, int(round(watermark.shape[1] * scale)))
+    resized_height = max(1, int(round(watermark.shape[0] * scale)))
+    resized = cv2.resize(watermark, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
 
-    for x, y in positions:
-        cv2.putText(overlay, text, (x + 2, y + 2), font, font_scale, (0, 0, 0), thickness + 2, cv2.LINE_AA)
-        cv2.putText(overlay, text, (x, y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+    margin_x = max(20, width // 40)
+    margin_y = max(20, height // 28)
+    start_x = max(0, width - resized_width - margin_x)
+    start_y = max(0, height - resized_height - margin_y)
+    end_x = min(width, start_x + resized_width)
+    end_y = min(height, start_y + resized_height)
 
-    blended = cv2.addWeighted(overlay, 0.28, image, 0.72, 0)
-    return blended, True
+    roi = image[start_y:end_y, start_x:end_x].astype(np.float32)
+    watermark_rgb = resized[: end_y - start_y, : end_x - start_x, :3].astype(np.float32)
+    alpha = resized[: end_y - start_y, : end_x - start_x, 3].astype(np.float32) / 255.0
+    alpha = np.expand_dims(alpha * 0.23, axis=2)
+    blended = roi * (1.0 - alpha) + watermark_rgb * alpha
+    image[start_y:end_y, start_x:end_x] = blended.astype(np.uint8)
+    return image, True, Path(getattr(settings, "MIRRAI_WATERMARK_IMAGE", "")).name
 
 
 def _detect_eyes(roi_gray, *, face_x: int, face_y: int, face_width: int, face_height: int) -> list[tuple[float, float]]:
@@ -344,8 +371,7 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         cv2.rectangle(decoded, (bar_start_x, bar_start_y), (bar_end_x, bar_end_y), (0, 0, 0), thickness=-1)
         eye_bar_applied = True
 
-    watermark_text = getattr(settings, "MIRRAI_WATERMARK_TEXT", "MirrAI")
-    decoded, watermark_applied = _apply_text_watermark(decoded, watermark_text)
+    decoded, watermark_applied, watermark_asset = _apply_logo_watermark(decoded)
 
     success, encoded = cv2.imencode(".jpg", decoded, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
     if not success:
@@ -362,7 +388,8 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         "method": "pixelate_face_region",
         "eye_bar_applied": eye_bar_applied,
         "watermark_applied": watermark_applied,
-        "watermark_text": watermark_text if watermark_applied else None,
+        "watermark_mode": "image" if watermark_applied else None,
+        "watermark_asset": watermark_asset,
         "masked_region": {
             "x": start_x,
             "y": start_y,

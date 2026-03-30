@@ -65,7 +65,8 @@ class ContractPreparationSnapshotTests(APITestCase):
 
         self.assertIsNotNone(deidentified_bytes)
         self.assertTrue(privacy_snapshot["watermark_applied"])
-        self.assertEqual(privacy_snapshot["watermark_text"], "MirrAI")
+        self.assertEqual(privacy_snapshot["watermark_mode"], "image")
+        self.assertEqual(privacy_snapshot["watermark_asset"], "mirrai_wordmark_primary.png")
         self.assertTrue(privacy_snapshot["eye_bar_applied"])
 
     def test_admin_trend_report_exposes_report_snapshot(self):
