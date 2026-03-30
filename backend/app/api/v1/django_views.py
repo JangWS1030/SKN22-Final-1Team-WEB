@@ -1,5 +1,6 @@
 ﻿import io
 import threading
+import logging
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -11,7 +12,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
 from app.api.v1.admin_auth import issue_client_token_pair, refresh_client_access_token
-from app.api.v1.response_helpers import detail_response
+from app.api.v1.response_helpers import CompatEnvelopeAPIView, detail_response
 from app.api.v1.django_serializers import (
     ClientCheckSerializer,
     ClientRegisterSerializer,
@@ -37,7 +38,10 @@ from app.models_django import CaptureRecord, Client
 from app.services.age_profile import build_client_age_profile
 from app.services.capture_validation import sanitize_original_upload, validate_capture_image
 from app.services.face_processing import build_deidentified_capture, extract_landmark_snapshot
-from app.services.storage_service import store_capture_assets
+from app.services.storage_service import build_storage_snapshot, store_capture_assets
+
+
+logger = logging.getLogger(__name__)
 
 
 def _request_value(request, *keys: str):
@@ -56,7 +60,7 @@ def _query_value(request, *keys: str):
     return None
 
 
-class LoginView(APIView):
+class LoginView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Log in client",
         request={
@@ -89,7 +93,7 @@ class LoginView(APIView):
         )
 
 
-class ClientRefreshView(APIView):
+class ClientRefreshView(CompatEnvelopeAPIView):
     @extend_schema(summary="Refresh client token", request=TokenRefreshSerializer, responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = TokenRefreshSerializer(data=request.data)
@@ -97,11 +101,12 @@ class ClientRefreshView(APIView):
         try:
             payload = refresh_client_access_token(refresh_token=serializer.validated_data["refresh_token"])
         except Exception as exc:
+            logger.warning("[client_refresh_failed] reason=%s", exc)
             return detail_response(str(exc), status_code=status.HTTP_401_UNAUTHORIZED)
         return Response(payload)
 
 
-class ClientCheckView(APIView):
+class ClientCheckView(CompatEnvelopeAPIView):
     @extend_schema(summary="Check existing client", request=ClientCheckSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
@@ -124,7 +129,7 @@ class ClientCheckView(APIView):
         )
 
 
-class RegisterView(APIView):
+class RegisterView(CompatEnvelopeAPIView):
     @extend_schema(summary="Register new client", request=ClientRegisterSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
@@ -153,16 +158,17 @@ class RegisterView(APIView):
         )
 
 
-class SurveyView(APIView):
+class SurveyView(CompatEnvelopeAPIView):
     @extend_schema(summary="Submit client survey", request=SurveySerializer, responses={200: SurveySerializer})
     def post(self, request):
-        client_id = _request_value(request, "client", "client_id", "customer_id")
+        client_id = _request_value(request, "client", "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         survey = upsert_survey(client, request.data)
+        logger.info("[survey_saved] client_id=%s survey_id=%s", client.id, survey.id)
         return Response(SurveySerializer(survey).data)
 
 
-class CaptureUploadView(APIView):
+class CaptureUploadView(CompatEnvelopeAPIView):
     parser_classes = (parsers.MultiPartParser, parsers.FormParser)
 
     @extend_schema(
@@ -180,7 +186,7 @@ class CaptureUploadView(APIView):
         responses={200: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         file_obj = request.FILES.get("file")
         if not file_obj:
@@ -245,6 +251,20 @@ class CaptureUploadView(APIView):
             error_note=(None if validation["is_valid"] else validation["message"]),
         )
 
+        storage_snapshot = build_storage_snapshot(
+            original_path=original_path,
+            processed_path=processed_path,
+            deidentified_path=deidentified_path,
+        )
+
+        logger.info(
+            "[capture_upload] client_id=%s status=%s storage_mode=%s has_required_assets=%s",
+            client.id,
+            validation["status"],
+            storage_snapshot["storage_mode"],
+            storage_snapshot["has_required_capture_assets"],
+        )
+
         if not validation["is_valid"]:
             return Response(
                 {
@@ -255,6 +275,7 @@ class CaptureUploadView(APIView):
                     "message": validation["message"],
                     "next_action": "capture",
                     "privacy_snapshot": privacy_snapshot,
+                    "storage_snapshot": storage_snapshot,
                 }
             )
 
@@ -275,11 +296,12 @@ class CaptureUploadView(APIView):
                 "face_count": validation["face_count"],
                 "message": validation["message"],
                 "privacy_snapshot": privacy_snapshot,
+                "storage_snapshot": storage_snapshot,
             }
         )
 
 
-class CaptureStatusView(APIView):
+class CaptureStatusView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get capture processing status",
         parameters=[OpenApiParameter("record_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
@@ -287,40 +309,53 @@ class CaptureStatusView(APIView):
     )
     def get(self, request):
         record = get_object_or_404(CaptureRecord, id=request.query_params.get("record_id"))
-        return Response(serialize_capture_status(record))
+        payload = serialize_capture_status(record)
+        logger.info(
+            "[capture_status] record_id=%s status=%s storage_mode=%s",
+            record.id,
+            payload["status"],
+            payload["storage_snapshot"]["storage_mode"],
+        )
+        return Response(payload)
 
 
-class FormerRecommendationView(APIView):
+class FormerRecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get former recommendation history",
         parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = _query_value(request, "client_id", "customer_id")
+        client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         payload = get_former_recommendations(client)
-        if request.query_params.get("customer_id"):
+        if request.query_params.get("customer_id") or request.query_params.get("customer"):
             return Response(payload.get("items", []))
         return Response(payload)
 
 
-class RecommendationView(APIView):
+class RecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get current recommendations",
         parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = _query_value(request, "client_id", "customer_id")
+        client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         payload = get_current_recommendations(client)
-        if request.query_params.get("customer_id"):
+        logger.info(
+            "[current_recommendations] client_id=%s item_count=%s stage=%s",
+            client.id,
+            len(payload.get("items", [])),
+            payload.get("recommendation_stage"),
+        )
+        if request.query_params.get("customer_id") or request.query_params.get("customer"):
             return Response(payload.get("items", []))
         return Response(payload)
 
 
-class TrendView(APIView):
+class TrendView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get trend-based style recommendations",
         parameters=[
@@ -331,12 +366,20 @@ class TrendView(APIView):
     )
     def get(self, request):
         days = int(request.query_params.get("days", 30))
-        client_id = _query_value(request, "client_id", "customer_id")
+        client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id) if client_id else None
-        return Response(get_trend_recommendations(days=days, client=client))
+        payload = get_trend_recommendations(days=days, client=client)
+        logger.info(
+            "[trend_recommendations] client_id=%s days=%s item_count=%s scope=%s",
+            (client.id if client else None),
+            days,
+            len(payload.get("items", [])),
+            payload.get("trend_scope"),
+        )
+        return Response(payload)
 
 
-class RegenerateSimulationView(APIView):
+class RegenerateSimulationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Regenerate simulation payload from vector-only snapshot",
         request=RegenerateSimulationRequestSerializer,
@@ -352,7 +395,7 @@ class RegenerateSimulationView(APIView):
         return Response(payload)
 
 
-class RetryRecommendationView(APIView):
+class RetryRecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Retry the current recommendation batch once with preference-first scoring",
         request=RetryRecommendationRequestSerializer,
@@ -361,7 +404,7 @@ class RetryRecommendationView(APIView):
     def post(self, request):
         serializer = RetryRecommendationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id")
+        client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id") or serializer.validated_data.get("customer")
         if not client_id:
             return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
         client = get_object_or_404(Client, id=client_id)
@@ -372,7 +415,7 @@ class RetryRecommendationView(APIView):
         return Response(payload)
 
 
-class SelectionView(APIView):
+class SelectionView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Legacy selection staging endpoint",
         request={
@@ -389,7 +432,7 @@ class SelectionView(APIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         style_id = _request_value(request, "style_id")
         if not client_id or not style_id:
             return detail_response(
@@ -407,7 +450,7 @@ class SelectionView(APIView):
         )
 
 
-class ConfirmView(APIView):
+class ConfirmView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Confirm selected style and hand off to admin",
         request={
@@ -427,7 +470,7 @@ class ConfirmView(APIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         try:
             payload = confirm_style_selection(
@@ -443,7 +486,7 @@ class ConfirmView(APIView):
         return Response(payload)
 
 
-class CancelView(APIView):
+class CancelView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Cancel selected style and return to client input",
         request={
@@ -460,7 +503,7 @@ class CancelView(APIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         try:
             payload = cancel_style_selection(

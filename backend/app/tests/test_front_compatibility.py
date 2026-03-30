@@ -126,7 +126,55 @@ class FrontCompatibilityTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("status", response.json())
+        payload = response.json()
+        self.assertIn("status", payload)
+        self.assertIn("storage_snapshot", payload)
+        self.assertIn(payload["storage_snapshot"]["storage_mode"], {"local", "remote"})
+        self.assertEqual(payload["storage_snapshot"]["bucket_name"], "mirrai-assets")
+        self.assertFalse(payload["storage_snapshot"]["has_required_capture_assets"])
+
+    def test_capture_status_returns_storage_snapshot_and_resolution_status(self):
+        client = Client.objects.create(name="Capture Status", phone="01010101010")
+        record = CaptureRecord.objects.create(
+            client=client,
+            status="DONE",
+            face_count=1,
+            original_path="captures/original.jpg",
+            processed_path="captures/processed.jpg",
+            deidentified_path="captures/deidentified.jpg",
+            privacy_snapshot={"storage_policy": "asset_store"},
+        )
+
+        response = self.client.get(f"/api/v1/capture/status/?record_id={record.id}")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("storage_snapshot", payload)
+        self.assertEqual(payload["storage_snapshot"]["path_count"], 3)
+        self.assertIn("resolution_statuses", payload["storage_snapshot"])
+        self.assertIn("reference_presence", payload["storage_snapshot"])
+        self.assertTrue(payload["storage_snapshot"]["reference_presence"]["original_path"])
+
+    def test_survey_endpoint_accepts_customer_hidden_field_alias(self):
+        client = Client.objects.create(name="Survey Alias", phone="01012121212")
+
+        response = self.client.post(
+            "/api/v1/survey/",
+            {
+                "customer": client.id,
+                "target_length": "short",
+                "target_vibe": "soft",
+                "scalp_type": "normal",
+                "hair_colour": "black",
+                "budget_range": "10-15",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        survey = Survey.objects.get(client=client)
+        self.assertEqual(survey.target_length, "short")
+        self.assertEqual(survey.target_vibe, "soft")
 
     def test_legacy_admin_customer_and_report_endpoints_work_with_session(self):
         admin = AdminAccount.objects.create(

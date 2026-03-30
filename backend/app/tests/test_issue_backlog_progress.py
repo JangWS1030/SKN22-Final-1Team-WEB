@@ -74,7 +74,8 @@ class BackendIssueProgressTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("agree_privacy", response.data)
+        self.assertIn("detail", response.data)
+        self.assertIn("agree_privacy", response.data["detail"])
 
     def test_admin_register_accepts_valid_business_number_and_normalizes_it(self):
         valid_business_number = build_valid_business_number()

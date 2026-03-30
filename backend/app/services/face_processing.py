@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import io
 import math
+from functools import lru_cache
+from pathlib import Path
 
 import cv2
 import numpy as np
+from django.conf import settings
+from PIL import Image, ImageEnhance, ImageOps
 
 
 _FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -12,8 +17,14 @@ _SMILE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smil
 
 
 def _decode_image(processed_bytes: bytes) -> np.ndarray | None:
-    image_array = np.frombuffer(processed_bytes, dtype=np.uint8)
-    return cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    try:
+        pil_image = Image.open(io.BytesIO(processed_bytes))
+        pil_image = ImageOps.exif_transpose(pil_image).convert("RGB")
+    except Exception:
+        image_array = np.frombuffer(processed_bytes, dtype=np.uint8)
+        return cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    rgb_array = np.array(pil_image)
+    return cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
 
 
 def _largest_face(faces) -> tuple[int, int, int, int] | None:
@@ -48,6 +59,89 @@ def _point_payload(
         "source": source,
         "confidence": round(float(confidence), 3),
     }
+
+
+@lru_cache(maxsize=1)
+def _load_watermark_asset() -> Image.Image | None:
+    configured_path = getattr(settings, "MIRRAI_WATERMARK_IMAGE", "static/branding/mirrai_wordmark_primary.png")
+    watermark_path = Path(settings.BASE_DIR) / configured_path
+    if not watermark_path.exists():
+        return None
+    try:
+        watermark = Image.open(watermark_path).convert("RGBA")
+    except Exception:
+        return None
+    if watermark.width == 0 or watermark.height == 0:
+        return None
+    return watermark
+
+
+def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | None, dict | None]:
+    watermark = _load_watermark_asset()
+    if watermark is None:
+        return image, False, None, None
+
+    height, width = image.shape[:2]
+    base_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGBA))
+
+    width_ratio = float(getattr(settings, "MIRRAI_WATERMARK_WIDTH_RATIO", 0.34))
+    width_ratio = max(0.1, min(width_ratio, 0.8))
+    max_logo_width = max(150, int(width * width_ratio))
+    scale = max_logo_width / float(watermark.width)
+    resized = watermark.resize(
+        (max(1, int(round(watermark.width * scale))), max(1, int(round(watermark.height * scale)))),
+        Image.LANCZOS,
+    )
+
+    opacity = float(getattr(settings, "MIRRAI_WATERMARK_OPACITY", 0.15))
+    opacity = max(0.01, min(opacity, 1.0))
+    angle = float(getattr(settings, "MIRRAI_WATERMARK_ANGLE", -32.0))
+    spacing_x_ratio = float(getattr(settings, "MIRRAI_WATERMARK_SPACING_X_RATIO", 0.38))
+    spacing_y_ratio = float(getattr(settings, "MIRRAI_WATERMARK_SPACING_Y_RATIO", 1.2))
+    stagger_ratio = float(getattr(settings, "MIRRAI_WATERMARK_STAGGER_RATIO", 0.48))
+    spacing_x_ratio = max(0.0, min(spacing_x_ratio, 2.0))
+    spacing_y_ratio = max(0.2, min(spacing_y_ratio, 3.0))
+    stagger_ratio = max(0.0, min(stagger_ratio, 1.0))
+
+    alpha = resized.getchannel("A")
+    alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
+    resized.putalpha(alpha)
+
+    pattern_width = int(width * 2.2)
+    pattern_height = int(height * 2.2)
+    pattern = Image.new("RGBA", (pattern_width, pattern_height), (255, 255, 255, 0))
+
+    step_x = resized.width + int(resized.width * spacing_x_ratio)
+    step_y = resized.height + int(resized.height * spacing_y_ratio)
+    row_offset = int(step_x * stagger_ratio)
+
+    row_index = 0
+    for y in range(-resized.height, pattern_height + resized.height, step_y):
+        offset_x = row_offset if row_index % 2 else 0
+        for x in range(-resized.width + offset_x, pattern_width + resized.width, step_x):
+            pattern.alpha_composite(resized, (x, y))
+        row_index += 1
+
+    rotated = pattern.rotate(angle, expand=True, resample=Image.BICUBIC)
+    left = max(0, (rotated.width - width) // 2)
+    top = max(0, (rotated.height - height) // 2)
+    overlay = rotated.crop((left, top, left + width, top + height))
+
+    watermarked = Image.alpha_composite(base_image, overlay)
+    output = cv2.cvtColor(np.array(watermarked.convert("RGBA")), cv2.COLOR_RGBA2BGR)
+    return (
+        output,
+        True,
+        Path(getattr(settings, "MIRRAI_WATERMARK_IMAGE", "")).name,
+        {
+            "opacity": opacity,
+            "angle": angle,
+            "width_ratio": width_ratio,
+            "spacing_x_ratio": spacing_x_ratio,
+            "spacing_y_ratio": spacing_y_ratio,
+            "stagger_ratio": stagger_ratio,
+        },
+    )
 
 
 def _detect_eyes(roi_gray, *, face_x: int, face_y: int, face_width: int, face_height: int) -> list[tuple[float, float]]:
@@ -320,6 +414,8 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         cv2.rectangle(decoded, (bar_start_x, bar_start_y), (bar_end_x, bar_end_y), (0, 0, 0), thickness=-1)
         eye_bar_applied = True
 
+    decoded, watermark_applied, watermark_asset, watermark_config = _apply_logo_watermark(decoded)
+
     success, encoded = cv2.imencode(".jpg", decoded, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
     if not success:
         return None, {
@@ -334,6 +430,10 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         "deidentification_applied": True,
         "method": "pixelate_face_region",
         "eye_bar_applied": eye_bar_applied,
+        "watermark_applied": watermark_applied,
+        "watermark_mode": "image" if watermark_applied else None,
+        "watermark_asset": watermark_asset,
+        "watermark_config": watermark_config if watermark_applied else None,
         "masked_region": {
             "x": start_x,
             "y": start_y,
