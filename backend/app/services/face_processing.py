@@ -8,7 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from django.conf import settings
-from PIL import Image, ImageOps
+from PIL import Image, ImageEnhance, ImageOps
 
 
 _FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -62,13 +62,16 @@ def _point_payload(
 
 
 @lru_cache(maxsize=1)
-def _load_watermark_asset() -> np.ndarray | None:
+def _load_watermark_asset() -> Image.Image | None:
     configured_path = getattr(settings, "MIRRAI_WATERMARK_IMAGE", "static/branding/mirrai_wordmark_primary.png")
     watermark_path = Path(settings.BASE_DIR) / configured_path
     if not watermark_path.exists():
         return None
-    watermark = cv2.imread(str(watermark_path), cv2.IMREAD_UNCHANGED)
-    if watermark is None or watermark.shape[-1] != 4:
+    try:
+        watermark = Image.open(watermark_path).convert("RGBA")
+    except Exception:
+        return None
+    if watermark.width == 0 or watermark.height == 0:
         return None
     return watermark
 
@@ -79,26 +82,44 @@ def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | No
         return image, False, None
 
     height, width = image.shape[:2]
-    max_logo_width = max(120, int(width * 0.38))
-    scale = max_logo_width / float(watermark.shape[1])
-    resized_width = max(1, int(round(watermark.shape[1] * scale)))
-    resized_height = max(1, int(round(watermark.shape[0] * scale)))
-    resized = cv2.resize(watermark, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
+    base_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGBA))
 
-    margin_x = max(20, width // 40)
-    margin_y = max(20, height // 28)
-    start_x = max(0, width - resized_width - margin_x)
-    start_y = max(0, height - resized_height - margin_y)
-    end_x = min(width, start_x + resized_width)
-    end_y = min(height, start_y + resized_height)
+    max_logo_width = max(150, int(width * 0.34))
+    scale = max_logo_width / float(watermark.width)
+    resized = watermark.resize(
+        (max(1, int(round(watermark.width * scale))), max(1, int(round(watermark.height * scale)))),
+        Image.LANCZOS,
+    )
 
-    roi = image[start_y:end_y, start_x:end_x].astype(np.float32)
-    watermark_rgb = resized[: end_y - start_y, : end_x - start_x, :3].astype(np.float32)
-    alpha = resized[: end_y - start_y, : end_x - start_x, 3].astype(np.float32) / 255.0
-    alpha = np.expand_dims(alpha * 0.23, axis=2)
-    blended = roi * (1.0 - alpha) + watermark_rgb * alpha
-    image[start_y:end_y, start_x:end_x] = blended.astype(np.uint8)
-    return image, True, Path(getattr(settings, "MIRRAI_WATERMARK_IMAGE", "")).name
+    opacity = float(getattr(settings, "MIRRAI_WATERMARK_OPACITY", 0.08))
+    opacity = max(0.01, min(opacity, 1.0))
+    alpha = resized.getchannel("A")
+    alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
+    resized.putalpha(alpha)
+
+    pattern_width = int(width * 2.2)
+    pattern_height = int(height * 2.2)
+    pattern = Image.new("RGBA", (pattern_width, pattern_height), (255, 255, 255, 0))
+
+    step_x = resized.width + int(resized.width * 0.38)
+    step_y = resized.height + int(resized.height * 1.2)
+    row_offset = int(step_x * 0.48)
+
+    row_index = 0
+    for y in range(-resized.height, pattern_height + resized.height, step_y):
+        offset_x = row_offset if row_index % 2 else 0
+        for x in range(-resized.width + offset_x, pattern_width + resized.width, step_x):
+            pattern.alpha_composite(resized, (x, y))
+        row_index += 1
+
+    rotated = pattern.rotate(-32, expand=True, resample=Image.BICUBIC)
+    left = max(0, (rotated.width - width) // 2)
+    top = max(0, (rotated.height - height) // 2)
+    overlay = rotated.crop((left, top, left + width, top + height))
+
+    watermarked = Image.alpha_composite(base_image, overlay)
+    output = cv2.cvtColor(np.array(watermarked.convert("RGBA")), cv2.COLOR_RGBA2BGR)
+    return output, True, Path(getattr(settings, "MIRRAI_WATERMARK_IMAGE", "")).name
 
 
 def _detect_eyes(roi_gray, *, face_x: int, face_y: int, face_width: int, face_height: int) -> list[tuple[float, float]]:
