@@ -35,6 +35,7 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[
 # ★ 추가: CSRF 보안 설정 (배포 환경에서 폼 전송/로그인 에러 방지)
 CSRF_TRUSTED_ORIGINS = [
     "https://mirrai.shop",
+    "https://www.mirrai.shop",
     "https://*.elasticbeanstalk.com"
 ]
 
