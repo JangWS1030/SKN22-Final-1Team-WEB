@@ -3,13 +3,13 @@ import os
 from unittest import mock
 
 from django.contrib.auth.hashers import make_password
-from PIL import Image
 from rest_framework import status
+from PIL import Image
 from rest_framework.test import APITestCase
 
 from app.api.v1.admin_services import get_admin_trend_report, get_style_report
 from app.api.v1.admin_auth import build_admin_refresh_token, build_admin_token, build_client_refresh_token, get_admin_auth_policy_snapshot
-from app.api.v1.response_helpers import get_error_contract_snapshot
+from app.api.v1.response_helpers import detail_response, get_error_contract_snapshot
 from app.api.v1.services_django import persist_generated_batch
 from app.models_django import AdminAccount, CaptureRecord, Client, FaceAnalysis, Survey
 from app.services.face_processing import build_deidentified_capture
@@ -24,6 +24,14 @@ class ContractPreparationSnapshotTests(APITestCase):
         self.assertEqual(payload["fields"], ["detail", "message", "error_code"])
         self.assertTrue(payload["envelope_supported"])
         self.assertTrue(payload["detail_backward_compatible"])
+
+    def test_detail_response_uses_default_error_code_for_not_found(self):
+        response = detail_response("Client not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["error_code"], "not_found")
+        self.assertEqual(response.data["message"], "Client not found.")
+        self.assertEqual(response.data["detail"], "Client not found.")
 
     def test_admin_auth_policy_snapshot_reports_refresh_support(self):
         payload = get_admin_auth_policy_snapshot()
@@ -43,7 +51,22 @@ class ContractPreparationSnapshotTests(APITestCase):
         self.assertIn(payload["storage_mode"], {"local", "remote"})
         self.assertIn("mirrai-assets", payload["bucket_name"])
         self.assertEqual(payload["path_count"], 3)
+        self.assertEqual(payload["resolved_url_count"], 3)
         self.assertTrue(payload["has_required_capture_assets"])
+        self.assertTrue(payload["fully_resolved_capture_assets"])
+        self.assertEqual(payload["reference_presence"]["original_path"], True)
+        self.assertIn(
+            payload["resolution_statuses"]["original_path"],
+            {
+                "local_reference",
+                "signed_url",
+                "signed_url_failed",
+                "signed_url_unresolved",
+                "storage_client_unavailable",
+                "public_url",
+                "already_resolved",
+            },
+        )
         self.assertIn("captures/original.jpg", payload["resolved_urls"]["original_path"])
 
     def test_deidentified_capture_applies_mirrai_watermark(self):
@@ -67,6 +90,9 @@ class ContractPreparationSnapshotTests(APITestCase):
         self.assertTrue(privacy_snapshot["watermark_applied"])
         self.assertEqual(privacy_snapshot["watermark_mode"], "image")
         self.assertEqual(privacy_snapshot["watermark_asset"], "mirrai_wordmark_primary.png")
+        self.assertIn("watermark_config", privacy_snapshot)
+        self.assertIn("opacity", privacy_snapshot["watermark_config"])
+        self.assertIn("angle", privacy_snapshot["watermark_config"])
         self.assertTrue(privacy_snapshot["eye_bar_applied"])
 
     def test_admin_trend_report_exposes_report_snapshot(self):
@@ -104,6 +130,26 @@ class ContractPreparationSnapshotTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("report_snapshot", response.data)
         self.assertEqual(response.data["report_snapshot"]["days"], 7)
+
+    def test_admin_style_report_endpoint_exposes_report_snapshot(self):
+        admin = AdminAccount.objects.create(
+            name="Style Admin",
+            store_name="MirrAI Style",
+            role="owner",
+            phone="01091919191",
+            business_number="2234567890",
+            password_hash=make_password("plain-password"),
+        )
+
+        response = self.client.get(
+            "/api/v1/admin/style-report/?style_id=101&days=14",
+            HTTP_AUTHORIZATION=f"Bearer {build_admin_token(admin=admin)}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("report_snapshot", response.data)
+        self.assertEqual(response.data["report_snapshot"]["style_id"], 101)
+        self.assertEqual(response.data["report_snapshot"]["days"], 14)
 
 
 class RegenerateSimulationEndpointTests(APITestCase):
@@ -432,3 +478,16 @@ class RefreshTokenEndpointTests(APITestCase):
         self.assertEqual(response.data["error_code"], "validation_error")
         self.assertEqual(response.data["message"], "Validation failed.")
         self.assertIsInstance(response.data["detail"], dict)
+
+    def test_client_refresh_parse_error_uses_compat_envelope(self):
+        response = self.client.generic(
+            "POST",
+            "/api/v1/auth/refresh/",
+            data="{invalid-json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "parse_error")
+        self.assertIn("message", response.data)
+        self.assertIn("detail", response.data)

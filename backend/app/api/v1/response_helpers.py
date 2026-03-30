@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 
 from rest_framework import exceptions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_ERROR_CODE_BY_STATUS: dict[int, str] = {
@@ -39,10 +43,17 @@ def detail_response(
     error_code: str | None = None,
     **extra: object,
 ) -> Response:
+    resolved_error_code = error_code or _default_error_code(status_code)
+    logger.warning(
+        "[api_error_response] status=%s error_code=%s message=%s",
+        status_code,
+        resolved_error_code,
+        message,
+    )
     payload = {
         "detail": message,
         "message": message,
-        "error_code": error_code or _default_error_code(status_code),
+        "error_code": resolved_error_code,
     }
     payload.update(extra)
     return Response(payload, status=status_code)
@@ -76,6 +87,12 @@ class CompatEnvelopeAPIView(APIView):
 
         if isinstance(exc, exceptions.ValidationError):
             message = _extract_exception_message(data)
+            logger.warning(
+                "[api_exception] view=%s status=%s error_code=validation_error message=%s",
+                self.__class__.__name__,
+                status_code,
+                message,
+            )
             response.data = {
                 "detail": data,
                 "message": message,
@@ -102,6 +119,15 @@ class CompatEnvelopeAPIView(APIView):
             error_code = "parse_error"
         else:
             error_code = _default_error_code(status_code)
+
+        log_message = (
+            "[api_exception] view=%s status=%s error_code=%s message=%s"
+            % (self.__class__.__name__, status_code, error_code, message)
+        )
+        if status_code >= 500:
+            logger.error(log_message, exc_info=exc)
+        else:
+            logger.warning(log_message)
 
         response.data = {
             "detail": detail,

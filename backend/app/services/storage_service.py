@@ -20,6 +20,12 @@ def _guess_mime(filename: str, default: str) -> str:
     return guessed or default
 
 
+def _extract_signed_url(signed) -> str | None:
+    if isinstance(signed, dict):
+        return signed.get("signedURL") or signed.get("signedUrl")
+    return getattr(signed, "signedURL", None) or getattr(signed, "signedUrl", None)
+
+
 @lru_cache(maxsize=1)
 def ensure_supabase_bucket() -> bool:
     if not settings.SUPABASE_USE_REMOTE_STORAGE:
@@ -153,9 +159,37 @@ def resolve_storage_reference(reference: str | None) -> str | None:
     except Exception as exc:
         logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
         return reference
-    if isinstance(signed, dict):
-        return signed.get("signedURL") or signed.get("signedUrl") or reference
-    return getattr(signed, "signedURL", None) or getattr(signed, "signedUrl", None) or reference
+    return _extract_signed_url(signed) or reference
+
+
+def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str | None, str]:
+    if not reference:
+        return reference, "missing_reference"
+
+    if reference.startswith(("http://", "https://", "/")):
+        return reference, "already_resolved"
+
+    if not settings.SUPABASE_USE_REMOTE_STORAGE:
+        return reference, "local_reference"
+
+    client = get_supabase_client()
+    if client is None:
+        return reference, "storage_client_unavailable"
+
+    bucket = client.storage.from_(settings.SUPABASE_BUCKET)
+    if settings.SUPABASE_BUCKET_PUBLIC:
+        return bucket.get_public_url(reference), "public_url"
+
+    try:
+        signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
+    except Exception as exc:
+        logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
+        return reference, "signed_url_failed"
+
+    resolved = _extract_signed_url(signed)
+    if resolved:
+        return resolved, "signed_url"
+    return reference, "signed_url_unresolved"
 
 
 def build_storage_snapshot(
@@ -169,20 +203,33 @@ def build_storage_snapshot(
         "processed_path": processed_path,
         "deidentified_path": deidentified_path,
     }
+    resolved_pairs = {
+        key: _resolve_storage_reference_with_status(value) for key, value in paths.items()
+    }
+    resolved_urls = {key: pair[0] for key, pair in resolved_pairs.items()}
+    resolution_statuses = {key: pair[1] for key, pair in resolved_pairs.items()}
+    reference_presence = {key: bool(value) for key, value in paths.items()}
     return {
         "storage_mode": "remote" if settings.SUPABASE_USE_REMOTE_STORAGE else "local",
         "bucket_name": settings.SUPABASE_BUCKET,
         "bucket_public": settings.SUPABASE_BUCKET_PUBLIC,
         "remote_storage_enabled": settings.SUPABASE_USE_REMOTE_STORAGE,
         "paths": paths,
-        "resolved_urls": {
-            key: resolve_storage_reference(value) for key, value in paths.items()
-        },
+        "resolved_urls": resolved_urls,
+        "resolution_statuses": resolution_statuses,
+        "reference_presence": reference_presence,
         "path_count": sum(1 for value in paths.values() if value),
+        "resolved_url_count": sum(1 for value in resolved_urls.values() if value),
         "has_original": bool(original_path),
         "has_processed": bool(processed_path),
         "has_deidentified": bool(deidentified_path),
         "has_required_capture_assets": bool(original_path and processed_path),
+        "fully_resolved_capture_assets": bool(
+            original_path
+            and processed_path
+            and resolved_urls.get("original_path")
+            and resolved_urls.get("processed_path")
+        ),
     }
 
 

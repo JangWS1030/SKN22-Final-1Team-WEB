@@ -76,15 +76,17 @@ def _load_watermark_asset() -> Image.Image | None:
     return watermark
 
 
-def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | None]:
+def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | None, dict | None]:
     watermark = _load_watermark_asset()
     if watermark is None:
-        return image, False, None
+        return image, False, None, None
 
     height, width = image.shape[:2]
     base_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGBA))
 
-    max_logo_width = max(150, int(width * 0.34))
+    width_ratio = float(getattr(settings, "MIRRAI_WATERMARK_WIDTH_RATIO", 0.34))
+    width_ratio = max(0.1, min(width_ratio, 0.8))
+    max_logo_width = max(150, int(width * width_ratio))
     scale = max_logo_width / float(watermark.width)
     resized = watermark.resize(
         (max(1, int(round(watermark.width * scale))), max(1, int(round(watermark.height * scale)))),
@@ -93,6 +95,14 @@ def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | No
 
     opacity = float(getattr(settings, "MIRRAI_WATERMARK_OPACITY", 0.08))
     opacity = max(0.01, min(opacity, 1.0))
+    angle = float(getattr(settings, "MIRRAI_WATERMARK_ANGLE", -32.0))
+    spacing_x_ratio = float(getattr(settings, "MIRRAI_WATERMARK_SPACING_X_RATIO", 0.38))
+    spacing_y_ratio = float(getattr(settings, "MIRRAI_WATERMARK_SPACING_Y_RATIO", 1.2))
+    stagger_ratio = float(getattr(settings, "MIRRAI_WATERMARK_STAGGER_RATIO", 0.48))
+    spacing_x_ratio = max(0.0, min(spacing_x_ratio, 2.0))
+    spacing_y_ratio = max(0.2, min(spacing_y_ratio, 3.0))
+    stagger_ratio = max(0.0, min(stagger_ratio, 1.0))
+
     alpha = resized.getchannel("A")
     alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
     resized.putalpha(alpha)
@@ -101,9 +111,9 @@ def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | No
     pattern_height = int(height * 2.2)
     pattern = Image.new("RGBA", (pattern_width, pattern_height), (255, 255, 255, 0))
 
-    step_x = resized.width + int(resized.width * 0.38)
-    step_y = resized.height + int(resized.height * 1.2)
-    row_offset = int(step_x * 0.48)
+    step_x = resized.width + int(resized.width * spacing_x_ratio)
+    step_y = resized.height + int(resized.height * spacing_y_ratio)
+    row_offset = int(step_x * stagger_ratio)
 
     row_index = 0
     for y in range(-resized.height, pattern_height + resized.height, step_y):
@@ -112,14 +122,26 @@ def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | No
             pattern.alpha_composite(resized, (x, y))
         row_index += 1
 
-    rotated = pattern.rotate(-32, expand=True, resample=Image.BICUBIC)
+    rotated = pattern.rotate(angle, expand=True, resample=Image.BICUBIC)
     left = max(0, (rotated.width - width) // 2)
     top = max(0, (rotated.height - height) // 2)
     overlay = rotated.crop((left, top, left + width, top + height))
 
     watermarked = Image.alpha_composite(base_image, overlay)
     output = cv2.cvtColor(np.array(watermarked.convert("RGBA")), cv2.COLOR_RGBA2BGR)
-    return output, True, Path(getattr(settings, "MIRRAI_WATERMARK_IMAGE", "")).name
+    return (
+        output,
+        True,
+        Path(getattr(settings, "MIRRAI_WATERMARK_IMAGE", "")).name,
+        {
+            "opacity": opacity,
+            "angle": angle,
+            "width_ratio": width_ratio,
+            "spacing_x_ratio": spacing_x_ratio,
+            "spacing_y_ratio": spacing_y_ratio,
+            "stagger_ratio": stagger_ratio,
+        },
+    )
 
 
 def _detect_eyes(roi_gray, *, face_x: int, face_y: int, face_width: int, face_height: int) -> list[tuple[float, float]]:
@@ -392,7 +414,7 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         cv2.rectangle(decoded, (bar_start_x, bar_start_y), (bar_end_x, bar_end_y), (0, 0, 0), thickness=-1)
         eye_bar_applied = True
 
-    decoded, watermark_applied, watermark_asset = _apply_logo_watermark(decoded)
+    decoded, watermark_applied, watermark_asset, watermark_config = _apply_logo_watermark(decoded)
 
     success, encoded = cv2.imencode(".jpg", decoded, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
     if not success:
@@ -411,6 +433,7 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         "watermark_applied": watermark_applied,
         "watermark_mode": "image" if watermark_applied else None,
         "watermark_asset": watermark_asset,
+        "watermark_config": watermark_config if watermark_applied else None,
         "masked_region": {
             "x": start_x,
             "y": start_y,

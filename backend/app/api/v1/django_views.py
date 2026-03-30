@@ -101,6 +101,7 @@ class ClientRefreshView(CompatEnvelopeAPIView):
         try:
             payload = refresh_client_access_token(refresh_token=serializer.validated_data["refresh_token"])
         except Exception as exc:
+            logger.warning("[client_refresh_failed] reason=%s", exc)
             return detail_response(str(exc), status_code=status.HTTP_401_UNAUTHORIZED)
         return Response(payload)
 
@@ -163,6 +164,7 @@ class SurveyView(CompatEnvelopeAPIView):
         client_id = _request_value(request, "client", "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         survey = upsert_survey(client, request.data)
+        logger.info("[survey_saved] client_id=%s survey_id=%s", client.id, survey.id)
         return Response(SurveySerializer(survey).data)
 
 
@@ -307,7 +309,14 @@ class CaptureStatusView(CompatEnvelopeAPIView):
     )
     def get(self, request):
         record = get_object_or_404(CaptureRecord, id=request.query_params.get("record_id"))
-        return Response(serialize_capture_status(record))
+        payload = serialize_capture_status(record)
+        logger.info(
+            "[capture_status] record_id=%s status=%s storage_mode=%s",
+            record.id,
+            payload["status"],
+            payload["storage_snapshot"]["storage_mode"],
+        )
+        return Response(payload)
 
 
 class FormerRecommendationView(CompatEnvelopeAPIView):
@@ -335,6 +344,12 @@ class RecommendationView(CompatEnvelopeAPIView):
         client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         payload = get_current_recommendations(client)
+        logger.info(
+            "[current_recommendations] client_id=%s item_count=%s stage=%s",
+            client.id,
+            len(payload.get("items", [])),
+            payload.get("recommendation_stage"),
+        )
         if request.query_params.get("customer_id") or request.query_params.get("customer"):
             return Response(payload.get("items", []))
         return Response(payload)
@@ -353,7 +368,15 @@ class TrendView(CompatEnvelopeAPIView):
         days = int(request.query_params.get("days", 30))
         client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id) if client_id else None
-        return Response(get_trend_recommendations(days=days, client=client))
+        payload = get_trend_recommendations(days=days, client=client)
+        logger.info(
+            "[trend_recommendations] client_id=%s days=%s item_count=%s scope=%s",
+            (client.id if client else None),
+            days,
+            len(payload.get("items", [])),
+            payload.get("trend_scope"),
+        )
+        return Response(payload)
 
 
 class RegenerateSimulationView(CompatEnvelopeAPIView):

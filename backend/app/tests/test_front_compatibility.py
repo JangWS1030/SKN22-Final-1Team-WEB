@@ -133,6 +133,28 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(payload["storage_snapshot"]["bucket_name"], "mirrai-assets")
         self.assertFalse(payload["storage_snapshot"]["has_required_capture_assets"])
 
+    def test_capture_status_returns_storage_snapshot_and_resolution_status(self):
+        client = Client.objects.create(name="Capture Status", phone="01010101010")
+        record = CaptureRecord.objects.create(
+            client=client,
+            status="DONE",
+            face_count=1,
+            original_path="captures/original.jpg",
+            processed_path="captures/processed.jpg",
+            deidentified_path="captures/deidentified.jpg",
+            privacy_snapshot={"storage_policy": "asset_store"},
+        )
+
+        response = self.client.get(f"/api/v1/capture/status/?record_id={record.id}")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("storage_snapshot", payload)
+        self.assertEqual(payload["storage_snapshot"]["path_count"], 3)
+        self.assertIn("resolution_statuses", payload["storage_snapshot"])
+        self.assertIn("reference_presence", payload["storage_snapshot"])
+        self.assertTrue(payload["storage_snapshot"]["reference_presence"]["original_path"])
+
     def test_survey_endpoint_accepts_customer_hidden_field_alias(self):
         client = Client.objects.create(name="Survey Alias", phone="01012121212")
 

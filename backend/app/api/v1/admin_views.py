@@ -1,4 +1,6 @@
 ﻿from django.shortcuts import get_object_or_404
+import logging
+
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
@@ -32,6 +34,9 @@ from app.api.v1.admin_services import (
 )
 from app.models_django import AdminAccount, CaptureRecord, Client, ConsultationRequest
 from app.session_state import get_session_admin
+
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_request_admin(request) -> AdminAccount | None:
@@ -84,6 +89,7 @@ class AdminRefreshView(CompatEnvelopeAPIView):
         try:
             payload = refresh_admin_access_token(refresh_token=serializer.validated_data["refresh_token"])
         except Exception as exc:
+            logger.warning("[admin_refresh_failed] reason=%s", exc)
             return detail_response(str(exc), status_code=status.HTTP_401_UNAUTHORIZED)
         return Response(payload)
 
@@ -257,6 +263,12 @@ class AdminTrendReportView(AdminProtectedAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         days = data.pop("days", 7)
+        logger.info(
+            "[admin_trend_report_request] admin_id=%s days=%s filters=%s",
+            request.user.id,
+            days,
+            data,
+        )
         return Response(get_admin_trend_report(days=days, filters=data, admin=request.user))
 
 
@@ -332,5 +344,11 @@ class StyleReportView(AdminProtectedAPIView):
     def get(self, request):
         style_id = int(request.query_params.get("style_id"))
         days = int(request.query_params.get("days", 7))
+        logger.info(
+            "[admin_style_report_request] admin_id=%s style_id=%s days=%s",
+            request.user.id,
+            style_id,
+            days,
+        )
         return Response(get_style_report(style_id=style_id, days=days, admin=request.user))
 
