@@ -93,7 +93,7 @@ def _apply_logo_watermark(image: np.ndarray) -> tuple[np.ndarray, bool, str | No
         Image.LANCZOS,
     )
 
-    opacity = float(getattr(settings, "MIRRAI_WATERMARK_OPACITY", 0.08))
+    opacity = float(getattr(settings, "MIRRAI_WATERMARK_OPACITY", 0.15))
     opacity = max(0.01, min(opacity, 1.0))
     angle = float(getattr(settings, "MIRRAI_WATERMARK_ANGLE", -32.0))
     spacing_x_ratio = float(getattr(settings, "MIRRAI_WATERMARK_SPACING_X_RATIO", 0.38))
