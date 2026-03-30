@@ -10,6 +10,7 @@ from app.api.v1.admin_auth import build_admin_refresh_token, build_client_refres
 from app.api.v1.response_helpers import get_error_contract_snapshot
 from app.api.v1.services_django import persist_generated_batch
 from app.models_django import AdminAccount, CaptureRecord, Client, FaceAnalysis, Survey
+from app.services.storage_service import build_storage_snapshot
 
 
 class ContractPreparationSnapshotTests(SimpleTestCase):
@@ -28,6 +29,19 @@ class ContractPreparationSnapshotTests(SimpleTestCase):
         self.assertTrue(payload["refresh_token_supported"])
         self.assertGreater(payload["token_max_age_seconds"], 0)
         self.assertGreater(payload["refresh_token_max_age_seconds"], payload["token_max_age_seconds"])
+
+    def test_storage_snapshot_reports_db_and_storage_linkage(self):
+        payload = build_storage_snapshot(
+            original_path="captures/original.jpg",
+            processed_path="captures/processed.jpg",
+            deidentified_path="captures/deidentified.jpg",
+        )
+
+        self.assertIn(payload["storage_mode"], {"local", "remote"})
+        self.assertIn("mirrai-assets", payload["bucket_name"])
+        self.assertEqual(payload["path_count"], 3)
+        self.assertTrue(payload["has_required_capture_assets"])
+        self.assertIn("captures/original.jpg", payload["resolved_urls"]["original_path"])
 
 
 class RegenerateSimulationEndpointTests(APITestCase):

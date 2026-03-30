@@ -37,7 +37,7 @@ from app.models_django import CaptureRecord, Client
 from app.services.age_profile import build_client_age_profile
 from app.services.capture_validation import sanitize_original_upload, validate_capture_image
 from app.services.face_processing import build_deidentified_capture, extract_landmark_snapshot
-from app.services.storage_service import store_capture_assets
+from app.services.storage_service import build_storage_snapshot, store_capture_assets
 
 
 def _request_value(request, *keys: str):
@@ -156,7 +156,7 @@ class RegisterView(CompatEnvelopeAPIView):
 class SurveyView(CompatEnvelopeAPIView):
     @extend_schema(summary="Submit client survey", request=SurveySerializer, responses={200: SurveySerializer})
     def post(self, request):
-        client_id = _request_value(request, "client", "client_id", "customer_id")
+        client_id = _request_value(request, "client", "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         survey = upsert_survey(client, request.data)
         return Response(SurveySerializer(survey).data)
@@ -255,6 +255,11 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                     "message": validation["message"],
                     "next_action": "capture",
                     "privacy_snapshot": privacy_snapshot,
+                    "storage_snapshot": build_storage_snapshot(
+                        original_path=original_path,
+                        processed_path=processed_path,
+                        deidentified_path=deidentified_path,
+                    ),
                 }
             )
 
@@ -275,6 +280,11 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                 "face_count": validation["face_count"],
                 "message": validation["message"],
                 "privacy_snapshot": privacy_snapshot,
+                "storage_snapshot": build_storage_snapshot(
+                    original_path=original_path,
+                    processed_path=processed_path,
+                    deidentified_path=deidentified_path,
+                ),
             }
         )
 

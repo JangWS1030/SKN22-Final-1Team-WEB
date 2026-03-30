@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 import uuid
 from functools import lru_cache
@@ -9,6 +10,9 @@ from django.conf import settings
 from storage3.types import CreateOrUpdateBucketOptions
 
 from app.services.supabase_client import get_supabase_client
+
+
+logger = logging.getLogger(__name__)
 
 
 def _guess_mime(filename: str, default: str) -> str:
@@ -91,6 +95,13 @@ def _store_in_supabase(
     deidentified_key = f"captures/{deidentified_filename}"
 
     bucket = client.storage.from_(settings.SUPABASE_BUCKET)
+    logger.info(
+        "[storage] uploading capture assets to bucket=%s original=%s processed=%s deidentified=%s",
+        settings.SUPABASE_BUCKET,
+        original_key,
+        processed_key,
+        deidentified_key if deidentified_bytes else None,
+    )
     bucket.upload(
         original_key,
         original_bytes,
@@ -109,6 +120,13 @@ def _store_in_supabase(
             file_options={"content-type": "image/jpeg"},
         )
         stored_deidentified_key = deidentified_key
+    logger.info(
+        "[storage] capture assets uploaded bucket=%s original=%s processed=%s deidentified=%s",
+        settings.SUPABASE_BUCKET,
+        original_key,
+        processed_key,
+        stored_deidentified_key,
+    )
     return original_filename, original_key, processed_key, stored_deidentified_key
 
 
@@ -130,10 +148,42 @@ def resolve_storage_reference(reference: str | None) -> str | None:
     if settings.SUPABASE_BUCKET_PUBLIC:
         return bucket.get_public_url(reference)
 
-    signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
+    try:
+        signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
+    except Exception as exc:
+        logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
+        return reference
     if isinstance(signed, dict):
         return signed.get("signedURL") or signed.get("signedUrl") or reference
     return getattr(signed, "signedURL", None) or getattr(signed, "signedUrl", None) or reference
+
+
+def build_storage_snapshot(
+    *,
+    original_path: str | None = None,
+    processed_path: str | None = None,
+    deidentified_path: str | None = None,
+) -> dict:
+    paths = {
+        "original_path": original_path,
+        "processed_path": processed_path,
+        "deidentified_path": deidentified_path,
+    }
+    return {
+        "storage_mode": "remote" if settings.SUPABASE_USE_REMOTE_STORAGE else "local",
+        "bucket_name": settings.SUPABASE_BUCKET,
+        "bucket_public": settings.SUPABASE_BUCKET_PUBLIC,
+        "remote_storage_enabled": settings.SUPABASE_USE_REMOTE_STORAGE,
+        "paths": paths,
+        "resolved_urls": {
+            key: resolve_storage_reference(value) for key, value in paths.items()
+        },
+        "path_count": sum(1 for value in paths.values() if value),
+        "has_original": bool(original_path),
+        "has_processed": bool(processed_path),
+        "has_deidentified": bool(deidentified_path),
+        "has_required_capture_assets": bool(original_path and processed_path),
+    }
 
 
 def store_capture_assets(

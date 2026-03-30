@@ -126,7 +126,33 @@ class FrontCompatibilityTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("status", response.json())
+        payload = response.json()
+        self.assertIn("status", payload)
+        self.assertIn("storage_snapshot", payload)
+        self.assertIn(payload["storage_snapshot"]["storage_mode"], {"local", "remote"})
+        self.assertEqual(payload["storage_snapshot"]["bucket_name"], "mirrai-assets")
+        self.assertFalse(payload["storage_snapshot"]["has_required_capture_assets"])
+
+    def test_survey_endpoint_accepts_customer_hidden_field_alias(self):
+        client = Client.objects.create(name="Survey Alias", phone="01012121212")
+
+        response = self.client.post(
+            "/api/v1/survey/",
+            {
+                "customer": client.id,
+                "target_length": "short",
+                "target_vibe": "soft",
+                "scalp_type": "normal",
+                "hair_colour": "black",
+                "budget_range": "10-15",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        survey = Survey.objects.get(client=client)
+        self.assertEqual(survey.target_length, "short")
+        self.assertEqual(survey.target_vibe, "soft")
 
     def test_legacy_admin_customer_and_report_endpoints_work_with_session(self):
         admin = AdminAccount.objects.create(

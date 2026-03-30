@@ -14,7 +14,7 @@ from app.api.v1.services_django import ensure_catalog_styles, get_latest_analysi
 from app.models_django import AdminAccount, CaptureRecord, ConsultationRequest, Client, ClientSessionNote, FormerRecommendation, Style, StyleSelection
 from app.services.age_profile import build_client_age_profile
 from app.services.ai_facade import get_ai_health
-from app.services.storage_service import resolve_storage_reference
+from app.services.storage_service import build_storage_snapshot, resolve_storage_reference
 
 
 def _normalize_phone(value: str) -> str:
@@ -94,6 +94,11 @@ def _serialize_capture(record: CaptureRecord) -> dict:
         "error_note": record.error_note,
         "original_image_url": resolve_storage_reference(record.original_path),
         "processed_image_url": resolve_storage_reference(record.processed_path),
+        "storage_snapshot": build_storage_snapshot(
+            original_path=record.original_path,
+            processed_path=record.processed_path,
+            deidentified_path=record.deidentified_path,
+        ),
         "created_at": record.created_at,
         "updated_at": record.updated_at,
     }
