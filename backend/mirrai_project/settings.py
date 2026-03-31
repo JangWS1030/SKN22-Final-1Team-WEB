@@ -7,6 +7,7 @@ env = environ.Env(
     SUPABASE_USE_REMOTE_DB=(bool, False),
     SUPABASE_USE_REMOTE_STORAGE=(bool, False),
     MIRRAI_PERSIST_CAPTURE_IMAGES=(bool, False),
+    MIRRAI_LOCAL_MOCK_RESULTS=(bool, False),
     TREND_REFRESH_ENABLED=(bool, False),
     TREND_REFRESH_INTERVAL_MINUTES=(int, 0),
     TREND_REFRESH_SOURCES=(list, []),
@@ -73,6 +74,7 @@ MIRRAI_WATERMARK_STAGGER_RATIO = env.float("MIRRAI_WATERMARK_STAGGER_RATIO", def
 SUPABASE_BUCKET_FILE_SIZE_LIMIT = env.int("SUPABASE_BUCKET_FILE_SIZE_LIMIT", default=10 * 1024 * 1024)
 SUPABASE_ALLOWED_MIME_TYPES = [item.strip() for item in env.list("SUPABASE_ALLOWED_MIME_TYPES", default=["image/jpeg", "image/png", "image/webp"]) if item.strip()]
 MIRRAI_PERSIST_CAPTURE_IMAGES = env.bool("MIRRAI_PERSIST_CAPTURE_IMAGES", default=False)
+MIRRAI_LOCAL_MOCK_RESULTS = env.bool("MIRRAI_LOCAL_MOCK_RESULTS", default=False)
 TREND_REFRESH_ENABLED = env.bool("TREND_REFRESH_ENABLED", default=False)
 TREND_REFRESH_INTERVAL_MINUTES = env.int("TREND_REFRESH_INTERVAL_MINUTES", default=0)
 TREND_REFRESH_SOURCE = env("TREND_REFRESH_SOURCE", default="ai_repo_refresh_trends")
@@ -139,8 +141,12 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# WhiteNoise storage for compressed and cached static files
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# Use a manifest only in production-like environments so local runserver
+# can render templates without collectstatic.
+if DEBUG:
+    STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+else:
+    STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "storage")

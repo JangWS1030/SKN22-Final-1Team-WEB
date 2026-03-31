@@ -156,7 +156,9 @@
     </article>
   {% endif %}
 </section>
+{% endblock %}
 
+{% block page_scripts %}
 <script>
   let currentStep = 1; let selectedDesignerId = null; let currentPin = "";
   const authSection = document.getElementById('authSection');
@@ -195,6 +197,11 @@
     selectedDesignerId = designer.id;
     document.getElementById('selectedDesignerName').textContent = designer.name;
     goToStep(3);
+  }
+
+  function continueAsShop() {
+    updateStatus("매장 전체 대시보드로 이동합니다.", "success");
+    window.location.href = '/partner/dashboard/';
   }
 
   function updatePinDisplay() {

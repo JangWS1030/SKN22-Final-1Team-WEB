@@ -243,11 +243,11 @@ def register_admin(*, payload: dict) -> dict:
     }
 
     if AdminAccount.objects.filter(phone=phone).exists():
-        raise ValueError("This phone number is already registered for an admin account.")
+        raise ValueError("이미 등록된 관리자 연락처입니다.")
     if not _is_valid_business_number(business_number):
-        raise ValueError("The business registration number is not valid.")
+        raise ValueError("유효하지 않은 사업자등록번호입니다.")
     if AdminAccount.objects.filter(Q(business_number__in=_business_number_variants(business_number))).exists():
-        raise ValueError("This business registration number is already registered.")
+        raise ValueError("이미 등록된 사업자등록번호입니다.")
 
     admin = AdminAccount.objects.create(
         name=payload["name"],
@@ -271,7 +271,7 @@ def login_admin(*, phone: str, password: str) -> dict:
     phone = _normalize_phone(phone)
     admin = AdminAccount.objects.filter(phone=phone, is_active=True).first()
     if not admin or not check_password(password, admin.password_hash):
-        raise ValueError("Please check the admin account credentials and try again.")
+        raise ValueError("관리자 계정 정보를 다시 확인해 주세요.")
     return {
         "status": "success",
         "admin": _serialize_admin_profile(admin),
@@ -400,6 +400,9 @@ def get_all_clients(*, query: str = "", admin: AdminAccount | None = None, desig
                 "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
                 "designer_id": client.designer_id,
                 "designer_name": client.designer.name if client.designer_id and client.designer else None,
+                "assigned_at": client.assigned_at,
+                "assignment_source": client.assignment_source,
+                "is_assignment_pending": client.designer_id is None and bool(client.shop_id),
                 **_client_age_fields(client),
                 "created_at": client.created_at,
                 "last_consulted_at": latest_consult.created_at if latest_consult else None,
@@ -407,6 +410,45 @@ def get_all_clients(*, query: str = "", admin: AdminAccount | None = None, desig
             }
         )
     return {"status": "ready", "items": items}
+
+
+def assign_client_to_designer(
+    *,
+    client: Client,
+    designer_id: int,
+    admin: AdminAccount,
+) -> dict:
+    designer = (
+        Designer.objects.filter(
+            id=designer_id,
+            shop=admin,
+            is_active=True,
+        )
+        .select_related("shop")
+        .first()
+    )
+    if designer is None:
+        raise ValueError("해당 매장 소속의 활성 디자이너를 찾을 수 없습니다.")
+
+    if client.shop_id not in (None, admin.id) and client.designer_id is None:
+        raise ValueError("현재 매장 범위를 벗어난 고객입니다.")
+
+    if client.shop_id is None:
+        client.shop = admin
+
+    client.designer = designer
+    client.assigned_at = timezone.now()
+    client.assignment_source = "shop_manual_assignment"
+    client.save(update_fields=["shop", "designer", "assigned_at", "assignment_source"])
+
+    return {
+        "status": "success",
+        "client_id": client.id,
+        "designer_id": designer.id,
+        "designer_name": designer.name,
+        "assigned_at": client.assigned_at,
+        "assignment_source": client.assignment_source,
+    }
 
 
 def get_client_detail(*, client: Client, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:

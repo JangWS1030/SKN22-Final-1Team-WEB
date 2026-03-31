@@ -28,6 +28,7 @@ from .admin_views import (
     AdminClientRecommendationView,
     AdminDashboardView,
     LegacyAdminClientDetailView,
+    LegacyAdminClientAssignView,
     LegacyAdminTrendReportView,
     LegacyAllClientsView,
     AdminTrendReportView,
@@ -35,6 +36,7 @@ from .admin_views import (
     ConsultationCloseView,
     ConsultationNoteView,
     AdminChatbotAskView,
+    AdminAiHealthView,
     StyleReportView,
 )
 
@@ -58,6 +60,7 @@ urlpatterns = [
     path('analysis/consult/', ConsultView.as_view(), name='consult'),
     path('customers/', LegacyAllClientsView.as_view(), name='customer-list'),
     path('customers/<int:pk>/', LegacyAdminClientDetailView.as_view(), name='customer-detail'),
+    path('customers/<int:pk>/assign/', LegacyAdminClientAssignView.as_view(), name='customer-assign'),
     path('admin/auth/register/', AdminRegisterView.as_view(), name='admin-register'),
     path('admin/auth/login/', AdminLoginView.as_view(), name='admin-login'),
     path('admin/auth/refresh/', AdminRefreshView.as_view(), name='admin-refresh'),
@@ -70,6 +73,7 @@ urlpatterns = [
     path('admin/consultations/note/', ConsultationNoteView.as_view(), name='admin-consultation-note'),
     path('admin/consultations/close/', ConsultationCloseView.as_view(), name='admin-consultation-close'),
     path('admin/chatbot/ask/', AdminChatbotAskView.as_view(), name='admin-chatbot-ask'),
+    path('admin/ai-health/', AdminAiHealthView.as_view(), name='admin-ai-health'),
     path('admin/trend-report/', AdminTrendReportView.as_view(), name='admin-trend-report'),
     path('admin/style-report/', StyleReportView.as_view(), name='admin-style-report'),
 ]
