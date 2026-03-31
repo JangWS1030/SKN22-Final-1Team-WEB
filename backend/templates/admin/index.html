@@ -7,63 +7,100 @@
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
   <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>파트너 센터</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">매장 운영 및 고객 관리 대시보드입니다.</p>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.72); margin-bottom: 0; font-size: 14px;">
+    매장 운영, 고객 관리, AI 시술 가이드를 한 화면에서 확인합니다.
+  </p>
 </div>
 {% endblock %}
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  /* Ensure hero section is visible and consistent */
   .hero-section {
-    display: flex !important; 
+    display: flex !important;
   }
+
   .content-section {
     margin-top: -20px !important;
+  }
+
+  .dashboard-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.75fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .login-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .section-panel {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 28px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .session-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
   }
 
   .pin-container {
     display: flex;
     justify-content: center;
-    gap: 12px;
-    margin: 32px 0;
+    gap: 14px;
+    margin: 20px 0 24px;
   }
-  
+
   .pin-dot {
-    width: 20px;
-    height: 20px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: var(--line);
     transition: all 0.2s ease;
   }
-  
+
   .pin-dot.filled {
     background: var(--accent);
-    transform: scale(1.2);
-    box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+    transform: scale(1.15);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.28);
   }
 
   .keypad {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    max-width: 280px;
+    grid-template-columns: repeat(3, 64px);
+    justify-content: center;
+    gap: 12px;
     margin: 0 auto;
   }
 
   .key {
-    aspect-ratio: 1;
-    display: flex;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
-    font-weight: 700;
-    border-radius: 50%;
     background: white;
     border: 1px solid var(--line);
+    font-size: 18px;
+    font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s ease;
     user-select: none;
+    transition: all 0.18s ease;
   }
 
   .key:hover {
@@ -73,45 +110,80 @@
   }
 
   .key:active {
-    transform: scale(0.9);
+    transform: scale(0.96);
   }
 
   .key.clear {
-    font-size: 14px;
     color: var(--error);
+    font-size: 13px;
   }
 
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-8px); }
-    75% { transform: translateX(8px); }
+  .tab-group {
+    display: inline-flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: #f8fafc;
+    border: 1px solid var(--line);
   }
 
-  .shake {
-    animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
-  }
-
-  /* Dashboard Styles */
   .tab-btn {
-    padding: 8px 16px;
+    padding: 10px 16px;
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 700;
     border: none;
-    background: none;
+    border-radius: 999px;
+    background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
-    border-bottom: 2px solid transparent;
     transition: all 0.2s ease;
   }
 
   .tab-btn.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
+    background: white;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .search-row {
+    display: flex;
+    gap: 10px;
+    flex: 1;
+    min-width: 220px;
+  }
+
+  .search-row input {
+    flex: 1;
+  }
+
+  .state-box {
+    padding: 32px 20px;
+    text-align: center;
+    border: 1px dashed var(--line);
+    border-radius: 18px;
+    background: #fcfcfd;
+    color: var(--text-secondary);
+  }
+
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
   }
 
   .stat-card {
-    padding: 24px;
-    border-radius: var(--radius-md);
+    padding: 22px;
+    border-radius: 18px;
     background: white;
     border: 1px solid var(--line);
     display: flex;
@@ -131,7 +203,39 @@
     font-weight: 600;
   }
 
-  /* Modal Styles */
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .chart-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .chart-card {
+    min-height: 340px;
+  }
+
+  .gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+  }
+
+  .gallery-grid img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    cursor: pointer;
+  }
+
   .modal {
     position: fixed;
     inset: 0;
@@ -169,7 +273,7 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.92);
     border: none;
     cursor: pointer;
     display: flex;
@@ -179,376 +283,546 @@
     z-index: 10;
     box-shadow: var(--shadow-sm);
   }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-8px); }
+    75% { transform: translateX(8px); }
+  }
+
+  .shake {
+    animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
+  }
+
+  @media (max-width: 1024px) {
+    .dashboard-shell,
+    .login-shell,
+    .chart-grid,
+    .detail-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .dashboard-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<style>
-  /* Compact Auth Panel centering & Standardized width/height */
-  #authSection {
-    max-width: 600px;
-    min-height: 420px; /* Further reduced height */
-    margin: 0 auto;
-    padding: 32px 40px 24px !important; /* Minimized bottom padding */
-    border-radius: 24px !important;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-  }
-  .editorial-grid {
-    display: block !important; 
-  }
-  .hero-title.auth-title {
-    font-size: 24px !important; /* Slightly smaller for compactness */
-    margin-bottom: 8px !important;
-    margin-top: 0;
-  }
-  .hero-copy.auth-copy {
-    line-height: 1.4 !important;
-    margin-bottom: 12px !important;
-    white-space: nowrap; /* Force single line */
-  }
-</style>
-<section class="editorial-grid">
-  <article class="main-content panel stack" id="authSection">
-    {% if is_dashboard %}
-      <!-- ... dashboard content ... -->
-    {% else %}
-      <h2 class="hero-title auth-title" style="text-align: center;">관리자 보안 인증</h2>
-      <p class="hero-copy auth-copy" style="font-size: 14px; text-align: center; opacity: 0.7;">
-        매장 관리를 위해 등록된 4자리 PIN 번호를 입력해 주세요.
-      </p>
-
-      <div class="pin-container" id="pinDisplay" style="margin: 8px 0; justify-content: center; gap: 16px;">
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
-      </div>
-
-      <div class="keypad" style="gap: 10px; max-width: 240px; margin: 0 auto;">
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('1')">1</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('2')">2</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('3')">3</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('4')">4</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('5')">5</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('6')">6</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('7')">7</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('8')">8</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('9')">9</div>
-        <div class="key clear" style="font-size: 13px; width: 52px; height: 52px;" onclick="clearPin()">C</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('0')">0</div>
-        <div class="key" style="width: 52px; height: 52px;" onclick="deletePin()">←</div>
-      </div>
-      
-      <p id="authMessage" class="camera-status" style="text-align: center; margin-top: 12px; font-size: 12px;">보안 인증을 진행해 주세요.</p>
-      <div style="text-align: center; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px;">
-        <a href="/partner/signup/" style="font-size: 13px; color: var(--accent); font-weight: 700; text-decoration: underline;">신규 파트너 가입 신청</a>
-      </div>
-    {% endif %}
-  </article>
-
-  {% if not is_dashboard %}
-  <!-- Hide side content when not logged in to focus on auth -->
-  <style> .side-content { display: none; } </style>
-  {% endif %}
-
-
-  <section class="side-content panel stack">
-    <p class="kicker">Security Notice</p>
-    <h2 class="section-title">보안 가이드</h2>
-    <div class="card-list">
-      <div class="mini-card">
-        <h3>PIN 보안</h3>
-        <p>단순한 번호(1234, 0000 등)는 피하고 3개월마다 교체해 주세요.</p>
-      </div>
-      <div class="mini-card">
-        <h3>로그아웃 관리</h3>
-        <p>업무 종료 시 반드시 로그아웃하여 고객 데이터 유출을 방지하세요.</p>
-      </div>
-      <div class="mini-card">
-        <h3>다중 인증</h3>
-        <p>상세 설정 메뉴에서 추가적인 생체 인증을 활성화할 수 있습니다.</p>
+{% if is_dashboard %}
+<section class="dashboard-shell">
+  <article class="section-panel stack">
+    <div class="stack" style="gap: 12px;">
+      <div style="display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap;">
+        <div class="stack" style="gap: 8px;">
+          <span class="session-badge">
+            {% if is_designer_session %}
+              디자이너 세션
+            {% else %}
+              샵 관리자 세션
+            {% endif %}
+          </span>
+          <h3 class="section-title" style="margin: 0;">
+            {% if is_designer_session %}
+              {{ designer.name }} 디자이너 대시보드
+            {% else %}
+              {{ admin.store_name }} 운영 대시보드
+            {% endif %}
+          </h3>
+          <p class="section-copy" style="margin: 0;">
+            고객 목록, 스타일 리포트, AI 시술 가이드를 이 화면에서 확인할 수 있습니다.
+          </p>
+        </div>
+        <div class="tab-group">
+          <button type="button" class="tab-btn active" id="showListBtn">고객 목록</button>
+          <button type="button" class="tab-btn" id="showReportBtn">트렌드 리포트</button>
+        </div>
       </div>
     </div>
-  </section>
+
+    <section id="listViewContainer">
+      <div id="listView">
+        <div class="toolbar">
+          <div class="search-row">
+            <input id="customerSearchInput" class="field-input" type="text" placeholder="고객 이름 또는 연락처 검색">
+            <button id="searchBtn" type="button" class="btn btn-dark" style="min-width: 96px;">검색</button>
+          </div>
+          <button id="refreshBtn" type="button" class="btn btn-light" style="min-width: 96px;">새로고침</button>
+        </div>
+
+        <div id="loadingState" class="state-box is-hidden">
+          고객 목록을 불러오는 중입니다.
+        </div>
+        <div id="emptyState" class="state-box is-hidden">
+          <p style="margin: 0;">등록된 고객이 없습니다.</p>
+        </div>
+        <div id="errorState" class="state-box is-hidden">
+          <p style="margin: 0;">고객 목록을 불러오지 못했습니다.</p>
+        </div>
+
+        <table id="customerTable" class="is-hidden" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--line); color: var(--text-secondary); font-size: 13px;">
+              <th style="padding: 12px 20px; text-align: left;">이름</th>
+              <th style="padding: 12px 20px; text-align: left;">연락처</th>
+              <th style="padding: 12px 20px; text-align: left;">등록일</th>
+              <th style="padding: 12px 20px; text-align: right;">상세</th>
+            </tr>
+          </thead>
+          <tbody id="customerListBody"></tbody>
+        </table>
+      </div>
+
+      <div id="detailView" class="is-hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+          <div class="stack" style="gap: 6px;">
+            <h4 id="detailName" class="section-title" style="margin: 0;">고객 상세</h4>
+            <p id="detailPhone" class="section-copy" style="margin: 0;"></p>
+          </div>
+          <button id="backToListBtn" type="button" class="btn btn-light">목록으로</button>
+        </div>
+
+        <div class="detail-grid">
+          <section class="mini-card">
+            <h4 style="margin-top: 0;">설문 정보</h4>
+            <div id="surveyContent" class="stack" style="gap: 8px;"></div>
+          </section>
+          <section class="mini-card">
+            <h4 style="margin-top: 0;">얼굴 분석</h4>
+            <div id="analysisContent" class="stack" style="gap: 8px;"></div>
+          </section>
+        </div>
+
+        <section class="mini-card" style="margin-top: 16px;">
+          <h4 style="margin-top: 0;">사진 기록</h4>
+          <p id="noPhotosMsg" class="section-copy">표시할 사진이 없습니다.</p>
+          <div id="photoGallery" class="gallery-grid"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="reportViewContainer" class="is-hidden">
+      <div class="dashboard-grid">
+        <article class="stat-card">
+          <span class="stat-label">누적 고객 수</span>
+          <strong class="stat-value" id="statTotalCustomers">-</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">오늘 신규 고객</span>
+          <strong class="stat-value" id="statTodayNew">-</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">스타일 확정 전환율</span>
+          <strong class="stat-value" id="statConversionRate">-</strong>
+        </article>
+      </div>
+
+      <div class="chart-grid">
+        <section class="section-panel chart-card" style="padding: 20px;">
+          <h4 style="margin-top: 0;">일별 방문 추이</h4>
+          <canvas id="visitorChart"></canvas>
+        </section>
+        <section class="section-panel chart-card" style="padding: 20px;">
+          <h4 style="margin-top: 0;">스타일 선택 분포</h4>
+          <canvas id="styleChart"></canvas>
+        </section>
+      </div>
+    </section>
+  </article>
+
+  <aside class="section-panel stack">
+    <p class="kicker">Security Notice</p>
+    <h3 class="section-title" style="margin-top: 0;">보안 가이드</h3>
+    <div class="card-list">
+      <div class="mini-card">
+        <h4>PIN 보안</h4>
+        <p>단순한 PIN 사용을 피하고, 정기적으로 변경해주세요.</p>
+      </div>
+      <div class="mini-card">
+        <h4>세션 종료</h4>
+        <p>업무가 끝나면 로그아웃하여 고객 정보 노출을 방지해주세요.</p>
+      </div>
+      <div class="mini-card">
+        <h4>AI 확인</h4>
+        <p>챗봇 또는 분석이 지연될 경우 대시보드에서 상태를 먼저 확인해주세요.</p>
+      </div>
+    </div>
+  </aside>
 </section>
 
-<!-- Photo Zoom Modal -->
+{% include "components/chatbot.html" %}
+
+{% else %}
+<section class="login-shell">
+  <article class="section-panel stack" id="authSection" style="max-width: 620px; margin: 0 auto;">
+    <h2 class="hero-title" style="text-align: center; font-size: 24px; margin-bottom: 8px;">관리자 보안 인증</h2>
+    <p class="hero-copy" style="font-size: 14px; text-align: center; opacity: 0.72;">
+      등록한 4자리 PIN 번호를 입력하면 바로 대시보드로 이동합니다.
+    </p>
+
+    <div class="pin-container" id="pinDisplay">
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+    </div>
+
+    <div class="keypad">
+      <button type="button" class="key" onclick="appendPin('1')">1</button>
+      <button type="button" class="key" onclick="appendPin('2')">2</button>
+      <button type="button" class="key" onclick="appendPin('3')">3</button>
+      <button type="button" class="key" onclick="appendPin('4')">4</button>
+      <button type="button" class="key" onclick="appendPin('5')">5</button>
+      <button type="button" class="key" onclick="appendPin('6')">6</button>
+      <button type="button" class="key" onclick="appendPin('7')">7</button>
+      <button type="button" class="key" onclick="appendPin('8')">8</button>
+      <button type="button" class="key" onclick="appendPin('9')">9</button>
+      <button type="button" class="key clear" onclick="clearPin()">C</button>
+      <button type="button" class="key" onclick="appendPin('0')">0</button>
+      <button type="button" class="key" onclick="deletePin()">←</button>
+    </div>
+
+    <p id="authMessage" class="camera-status" style="text-align: center; margin-top: 14px; font-size: 12px;">
+      보안 인증을 진행해주세요.
+    </p>
+    <div style="text-align: center; margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;">
+      <a href="/partner/signup/" style="font-size: 13px; color: var(--accent); font-weight: 700; text-decoration: underline;">
+        신규 파트너 가입 요청
+      </a>
+    </div>
+  </article>
+
+  <aside class="section-panel stack">
+    <p class="kicker">Security Notice</p>
+    <h3 class="section-title" style="margin-top: 0;">보안 가이드</h3>
+    <div class="card-list">
+      <div class="mini-card">
+        <h4>PIN 보안</h4>
+        <p>1234, 0000 같은 쉬운 번호는 피하고 정기적으로 변경해주세요.</p>
+      </div>
+      <div class="mini-card">
+        <h4>로그아웃</h4>
+        <p>업무 종료 후 로그아웃하여 고객 정보 노출을 방지해주세요.</p>
+      </div>
+      <div class="mini-card">
+        <h4>추가 인증</h4>
+        <p>추후 다중 인증 또는 생체 인증을 추가할 수 있도록 구조를 유지하고 있습니다.</p>
+      </div>
+    </div>
+  </aside>
+</section>
+{% endif %}
+
 <div id="photoModal" class="modal">
   <div class="modal-content" style="max-width: 600px;">
-    <button class="modal-close" id="closePhotoModal">&times;</button>
-    <img id="zoomedPhoto" src="" alt="Zoomed Photo" style="width: 100%; height: auto; display: block;">
+    <button class="modal-close" id="closePhotoModal" type="button">&times;</button>
+    <img id="zoomedPhoto" src="" alt="확대 이미지" style="width: 100%; height: auto; display: block;">
     <div style="padding: 16px 24px;">
       <p id="photoMeta" class="section-copy" style="font-weight: 600;"></p>
     </div>
   </div>
 </div>
+{% endblock %}
 
+{% block page_scripts %}
 <script>
+  const authSection = document.getElementById("authSection");
+  const messageEl = document.getElementById("authMessage");
+  const dots = document.querySelectorAll(".pin-dot");
   let currentPin = "";
   const maxPin = 4;
-  const dots = document.querySelectorAll('.pin-dot');
-  const messageEl = document.getElementById('authMessage');
-  const authSection = document.getElementById('authSection');
 
   function updateDisplay() {
+    if (!dots.length) return;
     dots.forEach((dot, index) => {
-      if (index < currentPin.length) {
-        dot.classList.add('filled');
-      } else {
-        dot.classList.remove('filled');
-      }
+      dot.classList.toggle("filled", index < currentPin.length);
     });
   }
 
-  function appendPin(num) {
-    if (currentPin.length < maxPin) {
-      currentPin += num;
-      updateDisplay();
-      
-      if (currentPin.length === maxPin) {
-        verifyPin();
-      }
+  window.appendPin = function appendPin(num) {
+    if (currentPin.length >= maxPin) return;
+    currentPin += num;
+    updateDisplay();
+    if (currentPin.length === maxPin) {
+      verifyPin();
     }
-  }
+  };
 
-  function deletePin() {
+  window.deletePin = function deletePin() {
     currentPin = currentPin.slice(0, -1);
     updateDisplay();
-    messageEl.textContent = "보안 인증을 진행해 주세요.";
-    messageEl.className = "camera-status";
-  }
+    if (messageEl) {
+      messageEl.textContent = "보안 인증을 진행해주세요.";
+      messageEl.className = "camera-status";
+    }
+  };
 
-  function clearPin() {
+  window.clearPin = function clearPin() {
     currentPin = "";
     updateDisplay();
-    messageEl.textContent = "보안 인증을 진행해 주세요.";
-    messageEl.className = "camera-status";
-  }
+    if (messageEl) {
+      messageEl.textContent = "보안 인증을 진행해주세요.";
+      messageEl.className = "camera-status";
+    }
+  };
 
   async function verifyPin() {
-    messageEl.textContent = "인증 확인 중...";
+    if (!messageEl) return;
+    messageEl.textContent = "인증을 확인하는 중입니다.";
     messageEl.className = "camera-status loading";
 
     try {
-      const response = await fetch('/partner/verify/', {
-        method: 'POST',
+      const response = await fetch("/partner/verify/", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-CSRFToken': '{{ csrf_token }}'
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-CSRFToken": "{{ csrf_token }}",
         },
-        body: `pin=${currentPin}`
+        body: `pin=${currentPin}`,
       });
-
       const data = await response.json();
 
-      if (data.status === 'success') {
-        messageEl.textContent = "인증 성공! 대시보드로 이동합니다.";
+      if (data.status === "success") {
+        messageEl.textContent = "인증 성공. 대시보드로 이동합니다.";
         messageEl.className = "camera-status success";
         setTimeout(() => {
           window.location.href = data.redirect;
-        }, 800);
-      } else {
-        handleFail();
+        }, 500);
+        return;
       }
+      handleFail(data.message || "PIN 번호가 일치하지 않습니다.");
     } catch (error) {
       handleFail("네트워크 오류가 발생했습니다.");
     }
   }
 
   function handleFail(msg) {
-    authSection.classList.add('shake');
-    messageEl.textContent = msg || "PIN 번호가 일치하지 않습니다.";
-    messageEl.className = "camera-status error";
-    
+    if (authSection) {
+      authSection.classList.add("shake");
+      setTimeout(() => authSection.classList.remove("shake"), 500);
+    }
+    if (messageEl) {
+      messageEl.textContent = msg;
+      messageEl.className = "camera-status error";
+    }
     setTimeout(() => {
-      authSection.classList.remove('shake');
       clearPin();
     }, 600);
   }
 
-  // Dashboard Logic
-  if (document.getElementById('showListBtn')) {
-    const listViewContainer = document.getElementById('listViewContainer');
-    const reportViewContainer = document.getElementById('reportViewContainer');
-    const showListBtn = document.getElementById('showListBtn');
-    const showReportBtn = document.getElementById('showReportBtn');
+  if (document.getElementById("showListBtn")) {
+    const listViewContainer = document.getElementById("listViewContainer");
+    const reportViewContainer = document.getElementById("reportViewContainer");
+    const showListBtn = document.getElementById("showListBtn");
+    const showReportBtn = document.getElementById("showReportBtn");
 
-    // List Logic
-    const table = document.getElementById('customerTable');
-    const tbody = document.getElementById('customerListBody');
-    const loading = document.getElementById('loadingState');
-    const empty = document.getElementById('emptyState');
-    const error = document.getElementById('errorState');
-    const refreshBtn = document.getElementById('refreshBtn');
-    const searchInput = document.getElementById('customerSearchInput');
-    const searchBtn = document.getElementById('searchBtn');
-    
-    const listView = document.getElementById('listView');
-    const detailView = document.getElementById('detailView');
-    const backToListBtn = document.getElementById('backToListBtn');
-    const detailName = document.getElementById('detailName');
-    const detailPhone = document.getElementById('detailPhone');
-    const surveyContent = document.getElementById('surveyContent');
-    const analysisContent = document.getElementById('analysisContent');
-    const photoGallery = document.getElementById('photoGallery');
-    const noPhotosMsg = document.getElementById('noPhotosMsg');
-    
-    const photoModal = document.getElementById('photoModal');
-    const zoomedPhoto = document.getElementById('zoomedPhoto');
-    const photoMeta = document.getElementById('photoMeta');
-    const closePhotoModal = document.getElementById('closePhotoModal');
+    const table = document.getElementById("customerTable");
+    const tbody = document.getElementById("customerListBody");
+    const loading = document.getElementById("loadingState");
+    const empty = document.getElementById("emptyState");
+    const error = document.getElementById("errorState");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const searchInput = document.getElementById("customerSearchInput");
+    const searchBtn = document.getElementById("searchBtn");
+
+    const listView = document.getElementById("listView");
+    const detailView = document.getElementById("detailView");
+    const backToListBtn = document.getElementById("backToListBtn");
+    const detailName = document.getElementById("detailName");
+    const detailPhone = document.getElementById("detailPhone");
+    const surveyContent = document.getElementById("surveyContent");
+    const analysisContent = document.getElementById("analysisContent");
+    const photoGallery = document.getElementById("photoGallery");
+    const noPhotosMsg = document.getElementById("noPhotosMsg");
+
+    const photoModal = document.getElementById("photoModal");
+    const zoomedPhoto = document.getElementById("zoomedPhoto");
+    const photoMeta = document.getElementById("photoMeta");
+    const closePhotoModal = document.getElementById("closePhotoModal");
 
     let searchTimeout = null;
     let visitorChart = null;
     let styleChart = null;
 
-    // View Switching
-    showListBtn.addEventListener('click', () => {
-      showListBtn.classList.add('active');
-      showReportBtn.classList.remove('active');
-      listViewContainer.classList.remove('is-hidden');
-      reportViewContainer.classList.add('is-hidden');
+    showListBtn.addEventListener("click", () => {
+      showListBtn.classList.add("active");
+      showReportBtn.classList.remove("active");
+      listViewContainer.classList.remove("is-hidden");
+      reportViewContainer.classList.add("is-hidden");
     });
 
-    showReportBtn.addEventListener('click', () => {
-      showReportBtn.classList.add('active');
-      showListBtn.classList.remove('active');
-      reportViewContainer.classList.remove('is-hidden');
-      listViewContainer.classList.add('is-hidden');
+    showReportBtn.addEventListener("click", () => {
+      showReportBtn.classList.add("active");
+      showListBtn.classList.remove("active");
+      reportViewContainer.classList.remove("is-hidden");
+      listViewContainer.classList.add("is-hidden");
       fetchTrendReport();
     });
 
-    async function fetchCustomers(query = '') {
-      loading.classList.remove('is-hidden');
-      table.classList.add('is-hidden');
-      empty.classList.add('is-hidden');
-      error.classList.add('is-hidden');
-      tbody.innerHTML = '';
+    async function fetchCustomers(query = "") {
+      loading.classList.remove("is-hidden");
+      table.classList.add("is-hidden");
+      empty.classList.add("is-hidden");
+      error.classList.add("is-hidden");
+      tbody.innerHTML = "";
 
       try {
-        const url = query ? `/api/v1/customers/?q=${encodeURIComponent(query)}` : '/api/v1/customers/';
+        const url = query ? `/api/v1/customers/?q=${encodeURIComponent(query)}` : "/api/v1/customers/";
         const response = await fetch(url);
-        if (!response.ok) throw new Error('Fetch failed');
+        if (!response.ok) throw new Error("Fetch failed");
         const data = await response.json();
-        loading.classList.add('is-hidden');
+        loading.classList.add("is-hidden");
+
         if (data.length === 0) {
-          const emptyMsg = query ? `"${query}"에 대한 검색 결과가 없습니다.` : '아직 등록된 고객이 없습니다.';
-          empty.querySelector('p').textContent = emptyMsg;
-          empty.classList.remove('is-hidden');
-        } else {
-          data.forEach(customer => {
-            const date = new Date(customer.created_at).toLocaleDateString('ko-KR', {
-              year: 'numeric', month: '2-digit', day: '2-digit'
-            });
-            const tr = document.createElement('tr');
-            tr.style.borderBottom = '1px solid var(--line)';
-            tr.innerHTML = `
-              <td style="padding: 16px 20px; font-size: 14px; font-weight: 600;">${customer.name}</td>
-              <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${customer.phone}</td>
-              <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${date}</td>
-              <td style="padding: 16px 20px; text-align: right;">
-                <button class="badge detail-btn" data-id="${customer.id}" style="background: white; border: 1px solid var(--line); cursor: pointer;">상세보기</button>
-              </td>
-            `;
-            tbody.appendChild(tr);
-          });
-          table.classList.remove('is-hidden');
-          document.querySelectorAll('.detail-btn').forEach(btn => {
-            btn.addEventListener('click', () => showDetail(btn.dataset.id));
-          });
+          empty.querySelector("p").textContent = query
+            ? `"${query}" 검색 결과가 없습니다.`
+            : "등록된 고객이 없습니다.";
+          empty.classList.remove("is-hidden");
+          return;
         }
+
+        data.forEach((customer) => {
+          const date = new Date(customer.created_at).toLocaleDateString("ko-KR", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          });
+          const tr = document.createElement("tr");
+          tr.style.borderBottom = "1px solid var(--line)";
+          tr.innerHTML = `
+            <td style="padding: 16px 20px; font-size: 14px; font-weight: 600;">${customer.name}</td>
+            <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${customer.phone}</td>
+            <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${date}</td>
+            <td style="padding: 16px 20px; text-align: right;">
+              <button class="badge detail-btn" data-id="${customer.id}" style="background: white; border: 1px solid var(--line); cursor: pointer;">상세보기</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        table.classList.remove("is-hidden");
+        document.querySelectorAll(".detail-btn").forEach((btn) => {
+          btn.addEventListener("click", () => showDetail(btn.dataset.id));
+        });
       } catch (err) {
-        loading.classList.add('is-hidden');
-        error.classList.remove('is-hidden');
+        loading.classList.add("is-hidden");
+        error.classList.remove("is-hidden");
       }
     }
 
     async function showDetail(id) {
-      listView.classList.add('is-hidden');
-      detailView.classList.remove('is-hidden');
+      listView.classList.add("is-hidden");
+      detailView.classList.remove("is-hidden");
       detailName.textContent = "불러오는 중...";
-      surveyContent.innerHTML = '<p class="section-copy">데이터를 불러오고 있습니다...</p>';
-      analysisContent.innerHTML = '<p class="section-copy">데이터를 불러오고 있습니다...</p>';
+      detailPhone.textContent = "";
+      surveyContent.innerHTML = '<p class="section-copy">설문 정보를 불러오는 중입니다.</p>';
+      analysisContent.innerHTML = '<p class="section-copy">분석 정보를 불러오는 중입니다.</p>';
+
       try {
         const response = await fetch(`/api/v1/customers/${id}/`);
+        if (!response.ok) throw new Error("detail fetch failed");
         const customer = await response.json();
+
         detailName.textContent = customer.name;
         detailPhone.textContent = customer.phone;
+
         if (customer.survey) {
           const s = customer.survey;
           surveyContent.innerHTML = `
             <div class="mini-card" style="padding: 12px; background: var(--bg);">
-              <p class="section-copy"><strong>희망 길이:</strong> ${s.target_length || '미지정'}</p>
-              <p class="section-copy"><strong>선호 분위기:</strong> ${s.target_vibe || '미지정'}</p>
-              <p class="section-copy"><strong>모발 상태:</strong> ${s.scalp_type || '미지정'}</p>
-              <p class="section-copy"><strong>선호 컬러:</strong> ${s.hair_colour || '미지정'}</p>
+              <p class="section-copy"><strong>희망 길이:</strong> ${s.target_length || "미입력"}</p>
+              <p class="section-copy"><strong>선호 분위기:</strong> ${s.target_vibe || "미입력"}</p>
+              <p class="section-copy"><strong>모발 상태:</strong> ${s.scalp_type || "미입력"}</p>
+              <p class="section-copy"><strong>선호 컬러:</strong> ${s.hair_colour || "미입력"}</p>
             </div>
           `;
-        } else { surveyContent.innerHTML = '<p class="section-copy">설문 내역이 없습니다.</p>'; }
+        } else {
+          surveyContent.innerHTML = '<p class="section-copy">설문 이력이 없습니다.</p>';
+        }
+
         if (customer.face_analyses && customer.face_analyses.length > 0) {
-          analysisContent.innerHTML = customer.face_analyses.map(a => `
+          analysisContent.innerHTML = customer.face_analyses.map((item) => `
             <div class="mini-card" style="padding: 12px; background: var(--bg);">
-              <p class="section-copy"><strong>얼굴형:</strong> ${a.face_shape}</p>
-              <p class="section-copy"><strong>황금비 점수:</strong> ${a.golden_ratio_score || '-'}</p>
-              <p class="section-copy" style="font-size: 12px; opacity: 0.7;">${new Date(a.created_at).toLocaleString()}</p>
+              <p class="section-copy"><strong>얼굴형:</strong> ${item.face_shape || "-"}</p>
+              <p class="section-copy"><strong>황금비 점수:</strong> ${item.golden_ratio_score || "-"}</p>
+              <p class="section-copy" style="font-size: 12px; opacity: 0.7;">${new Date(item.created_at).toLocaleString()}</p>
             </div>
-          `).join('');
-        } else { analysisContent.innerHTML = '<p class="section-copy">분석 내역이 없습니다.</p>'; }
-        photoGallery.innerHTML = '';
+          `).join("");
+        } else {
+          analysisContent.innerHTML = '<p class="section-copy">분석 이력이 없습니다.</p>';
+        }
+
+        photoGallery.innerHTML = "";
         const allPhotos = [
-          ...(customer.captures || []).map(c => ({ url: c.processed_path, date: c.created_at, type: '원본/전처리' })),
-          ...(customer.face_analyses || []).map(a => ({ url: a.image_url, date: a.created_at, type: '분석용' }))
-        ].sort((a, b) => new Date(b.date) - new Date(a.date));
-        if (allPhotos.length > 0) {
-          noPhotosMsg.classList.add('is-hidden');
-          allPhotos.forEach(photo => {
-            const img = document.createElement('img');
-            img.src = photo.url.startsWith('http') ? photo.url : `/media${photo.url.split('media').pop()}`;
-            img.className = 'thumb';
-            img.style.width = '100%';
-            img.style.aspectRatio = '1';
-            img.style.objectFit = 'cover';
-            img.style.cursor = 'pointer';
-            img.addEventListener('click', () => zoomPhoto(img.src, `${photo.type} - ${new Date(photo.date).toLocaleString()}`));
+          ...(customer.captures || []).map((item) => ({
+            url: item.processed_path || item.processed_image_url || item.original_image_url,
+            date: item.created_at,
+            type: "캡처",
+          })),
+          ...(customer.face_analyses || []).map((item) => ({
+            url: item.image_url,
+            date: item.created_at,
+            type: "분석",
+          })),
+        ].filter((item) => Boolean(item.url)).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        if (allPhotos.length === 0) {
+          noPhotosMsg.classList.remove("is-hidden");
+        } else {
+          noPhotosMsg.classList.add("is-hidden");
+          allPhotos.forEach((photo) => {
+            const img = document.createElement("img");
+            img.src = photo.url;
+            img.alt = `${photo.type} 이미지`;
+            img.addEventListener("click", () => zoomPhoto(photo.url, `${photo.type} - ${new Date(photo.date).toLocaleString()}`));
             photoGallery.appendChild(img);
           });
-        } else { noPhotosMsg.classList.remove('is-hidden'); }
-      } catch (err) { detailName.textContent = "오류 발생"; }
+        }
+      } catch (err) {
+        detailName.textContent = "상세 정보를 불러오지 못했습니다.";
+        detailPhone.textContent = "";
+      }
     }
 
     function zoomPhoto(src, meta) {
       zoomedPhoto.src = src;
       photoMeta.textContent = meta;
-      photoModal.classList.add('show');
+      photoModal.classList.add("show");
     }
-    closePhotoModal.addEventListener('click', () => photoModal.classList.remove('show'));
-    photoModal.addEventListener('click', (e) => { if (e.target === photoModal) photoModal.classList.remove('show'); });
+
     function hideDetail() {
-      detailView.classList.add('is-hidden');
-      listView.classList.remove('is-hidden');
+      detailView.classList.add("is-hidden");
+      listView.classList.remove("is-hidden");
     }
-    backToListBtn.addEventListener('click', hideDetail);
-    refreshBtn.addEventListener('click', () => { searchInput.value = ''; fetchCustomers(); });
-    searchBtn.addEventListener('click', () => { fetchCustomers(searchInput.value); });
-    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchCustomers(searchInput.value); });
-    searchInput.addEventListener('input', () => {
+
+    closePhotoModal.addEventListener("click", () => photoModal.classList.remove("show"));
+    photoModal.addEventListener("click", (event) => {
+      if (event.target === photoModal) photoModal.classList.remove("show");
+    });
+    backToListBtn.addEventListener("click", hideDetail);
+    refreshBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      fetchCustomers();
+    });
+    searchBtn.addEventListener("click", () => fetchCustomers(searchInput.value));
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") fetchCustomers(searchInput.value);
+    });
+    searchInput.addEventListener("input", () => {
       clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => fetchCustomers(searchInput.value), 500);
+      searchTimeout = setTimeout(() => fetchCustomers(searchInput.value), 400);
     });
 
-    // Trend Report Logic
     async function fetchTrendReport() {
       try {
-        const response = await fetch('/api/v1/analysis/report/');
+        const response = await fetch("/api/v1/analysis/report/");
+        if (!response.ok) throw new Error("report fetch failed");
         const data = await response.json();
-        
-        // Summary
-        document.getElementById('statTotalCustomers').textContent = data.summary.total_customers;
-        document.getElementById('statTodayNew').textContent = data.summary.new_today;
-        document.getElementById('statConversionRate').textContent = `${data.summary.conversion_rate}%`;
 
+        document.getElementById("statTotalCustomers").textContent = data.summary.total_customers;
+        document.getElementById("statTodayNew").textContent = data.summary.new_today;
+        document.getElementById("statConversionRate").textContent = `${data.summary.conversion_rate}%`;
         renderCharts(data);
       } catch (error) {
         console.error("Report fetch error:", error);
@@ -556,55 +830,59 @@
     }
 
     function renderCharts(data) {
-      // Visitor Chart
-      const ctxVisitor = document.getElementById('visitorChart').getContext('2d');
+      const visitorCtx = document.getElementById("visitorChart").getContext("2d");
       if (visitorChart) visitorChart.destroy();
-      visitorChart = new Chart(ctxVisitor, {
-        type: 'line',
+      visitorChart = new Chart(visitorCtx, {
+        type: "line",
         data: {
-          labels: data.visitor_stats.map(s => s.date),
+          labels: data.visitor_stats.map((item) => item.date),
           datasets: [{
-            label: '일별 방문자',
-            data: data.visitor_stats.map(s => s.count),
-            borderColor: '#6366f1',
-            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+            label: "일별 방문 수",
+            data: data.visitor_stats.map((item) => item.count),
+            borderColor: "#6366f1",
+            backgroundColor: "rgba(99, 102, 241, 0.1)",
             fill: true,
-            tension: 0.4
-          }]
+            tension: 0.35,
+          }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
-        }
+          scales: {
+            y: { beginAtZero: true, grid: { color: "#f1f5f9" } },
+            x: { grid: { display: false } },
+          },
+        },
       });
 
-      // Style Distribution Chart
-      const ctxStyle = document.getElementById('styleChart').getContext('2d');
+      const styleCtx = document.getElementById("styleChart").getContext("2d");
       if (styleChart) styleChart.destroy();
-      styleChart = new Chart(ctxStyle, {
-        type: 'doughnut',
+      styleChart = new Chart(styleCtx, {
+        type: "doughnut",
         data: {
-          labels: data.style_distribution.map(s => s.name),
+          labels: data.style_distribution.map((item) => item.name),
           datasets: [{
-            data: data.style_distribution.map(s => s.value),
-            backgroundColor: ['#6366f1', '#f43f5e', '#10b981', '#f59e0b', '#8b5cf6'],
-            borderWidth: 0
-          }]
+            data: data.style_distribution.map((item) => item.value),
+            backgroundColor: ["#6366f1", "#f43f5e", "#10b981", "#f59e0b", "#8b5cf6"],
+            borderWidth: 0,
+          }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } },
-          cutout: '70%'
-        }
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { usePointStyle: true, padding: 20 },
+            },
+          },
+          cutout: "68%",
+        },
       });
     }
 
     fetchCustomers();
   }
 </script>
-
-{% include "components/chatbot.html" %}
 {% endblock %}

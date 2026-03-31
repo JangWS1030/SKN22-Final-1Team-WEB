@@ -35,7 +35,8 @@ from app.api.v1.admin_services import (
 )
 from app.models_django import AdminAccount, CaptureRecord, Client, ConsultationRequest, Designer
 from app.session_state import get_session_admin, get_session_designer, set_admin_session
-from app.services.chatbot_service import build_admin_chatbot_reply
+from app.services.ai_facade import get_ai_health
+from app.services.chatbot_service import build_admin_chatbot_reply, get_chatbot_backend_status
 
 
 logger = logging.getLogger(__name__)
@@ -435,4 +436,28 @@ class AdminChatbotAskView(CompatEnvelopeAPIView):
         payload["actor_type"] = "designer" if designer is not None else "admin"
         payload["designer_id"] = designer.id if designer is not None else None
         return Response(payload)
+
+
+class AdminAiHealthView(CompatEnvelopeAPIView):
+    authentication_classes = [AdminTokenAuthentication]
+
+    @extend_schema(
+        summary="Get AI backend health and chatbot routing status",
+        responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        admin, designer = _resolve_request_staff(request)
+        if admin is None:
+            return detail_response("Admin login is required.", status_code=status.HTTP_401_UNAUTHORIZED)
+
+        return Response(
+            {
+                "status": "ready",
+                "checked_at": timezone.now(),
+                "actor_type": "designer" if designer is not None else "admin",
+                "designer_id": designer.id if designer is not None else None,
+                "ai_engine": get_ai_health(),
+                "chatbot_backend": get_chatbot_backend_status(),
+            }
+        )
 
