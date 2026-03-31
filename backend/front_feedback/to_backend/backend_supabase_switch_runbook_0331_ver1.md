@@ -111,3 +111,17 @@
 
 - PowerShell: `scripts/run_supabase_server.ps1`
 - CMD: `scripts/run_supabase_server.cmd`
+
+## 10. 빠른 무결성 점검
+
+Supabase 전환 후 DB 연결과 적재 상태를 다시 확인할 때는 아래 스크립트를 사용합니다.
+
+- PowerShell: `scripts/check_supabase_integrity.ps1`
+- CMD: `scripts/check_supabase_integrity.cmd`
+
+실행 내용:
+
+- `python manage.py check`
+- `python manage.py verify_seed_integrity --strict`
+
+즉, 팀원이 바로 봐야 하는 핵심은 `연결이 되는가`와 `필수 데이터가 실제로 적재되어 있는가`입니다.
