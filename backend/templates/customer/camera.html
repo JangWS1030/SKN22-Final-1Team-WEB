@@ -2,6 +2,315 @@
 
 {% block page_title %}MirrAI | 사진 촬영{% endblock %}
 
+{% block extra_head %}
+<style>
+  .camera-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 520px) minmax(300px, 340px);
+    justify-content: center;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .camera-side-panel {
+    position: sticky;
+    top: 20px;
+    align-self: start;
+  }
+
+  .camera-main-panel {
+    padding: 12px;
+  }
+
+  .camera-shell {
+    aspect-ratio: 3 / 4;
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    overflow: hidden;
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-lg);
+  }
+
+  .camera-footer {
+    padding: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .camera-side-stack {
+    gap: 24px;
+  }
+
+  .camera-auto-hint {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 4;
+    min-width: 220px;
+    max-width: calc(100% - 32px);
+    padding: 10px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 255, 157, 0.28);
+    background: rgba(8, 13, 11, 0.72);
+    color: rgba(255, 255, 255, 0.92);
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    backdrop-filter: blur(10px);
+    transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .camera-countdown {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .camera-countdown-ring {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgba(255, 214, 107, 0.75);
+    background: rgba(10, 12, 10, 0.65);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(14px);
+  }
+
+  .camera-countdown-value {
+    color: #fff;
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .camera-shutter-flash {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at center, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.28) 42%, rgba(255, 255, 255, 0) 72%),
+      rgba(255, 255, 255, 0.62);
+    opacity: 0;
+  }
+
+  .camera-shutter-flash.is-active {
+    animation: camera-shutter-flash 260ms ease-out;
+  }
+
+  @keyframes camera-shutter-flash {
+    0% {
+      opacity: 0;
+    }
+
+    18% {
+      opacity: 0.92;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .camera-condition-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .camera-condition-summary {
+    flex-shrink: 0;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: rgba(19, 227, 147, 0.1);
+    color: #0b1f17;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+  }
+
+  .camera-checklist {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .camera-checklist-item {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 10px 11px 11px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  }
+
+  .camera-checklist-item[data-state="valid"] {
+    border-color: rgba(19, 227, 147, 0.26);
+    box-shadow: 0 16px 36px rgba(19, 227, 147, 0.08);
+    transform: translateY(-1px);
+  }
+
+  .camera-checklist-item[data-state="invalid"] {
+    border-color: rgba(248, 113, 113, 0.22);
+  }
+
+  .camera-checklist-step {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(148, 163, 184, 0.12);
+    color: #475569;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .camera-checklist-item[data-state="valid"] .camera-checklist-step {
+    background: rgba(19, 227, 147, 0.14);
+    color: #0b1f17;
+  }
+
+  .camera-checklist-item[data-state="invalid"] .camera-checklist-step {
+    background: rgba(248, 113, 113, 0.12);
+    color: #991b1b;
+  }
+
+  .camera-checklist-title {
+    margin: 0 0 4px;
+    color: var(--bg-dark);
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.35;
+  }
+
+  .camera-checklist-copy {
+    margin: 0;
+    color: #51606f;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .camera-condition-status {
+    margin: 6px 0 0;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.5;
+    color: #64748b;
+  }
+
+  @media (max-width: 1024px) and (min-width: 701px) {
+    .camera-layout {
+      grid-template-columns: minmax(0, 1fr) minmax(248px, 284px);
+      gap: 16px;
+    }
+
+    .camera-main-panel {
+      padding: 10px;
+    }
+
+    .camera-shell {
+      max-width: 100%;
+    }
+
+    .camera-footer {
+      padding: 18px 16px 16px;
+    }
+
+    .camera-side-stack {
+      gap: 16px;
+    }
+
+    .camera-side-panel {
+      top: 12px;
+    }
+
+    .camera-side-panel .panel {
+      padding: 20px;
+    }
+
+    .camera-condition-header {
+      gap: 10px;
+    }
+
+    .camera-condition-summary {
+      padding: 6px 9px;
+      font-size: 10px;
+    }
+
+    .camera-checklist {
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .camera-checklist-item {
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 8px;
+      padding: 9px 10px 10px;
+      border-radius: 12px;
+    }
+
+    .camera-checklist-step {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      font-size: 13px;
+    }
+
+    .camera-checklist-title {
+      font-size: 13px;
+      margin-bottom: 3px;
+    }
+
+    .camera-checklist-copy {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .camera-condition-status {
+      margin-top: 5px;
+      font-size: 10px;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .camera-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .camera-side-panel {
+      position: static;
+    }
+
+    .camera-condition-header {
+      flex-direction: column;
+    }
+  }
+</style>
+{% endblock %}
+
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
   <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 02. <span>사진 촬영</span></h2>
@@ -10,13 +319,10 @@
 {% endblock %}
 
 {% block content %}
-<div style="display: grid; grid-template-columns: 1fr 320px; gap: 32px; align-items: start;">
-  <div class="panel" style="padding: 12px;">
-    <div class="camera-shell" style="aspect-ratio: 3/4; width: 100%; max-width: 480px; margin: 0 auto; overflow: hidden; position: relative; background: #000; border-radius: var(--radius-lg);">
-      <div style="width: 100%; height: 100%; position: relative;">
-        <video id="cameraPreviewBlur" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); filter: blur(20px) brightness(0.4); opacity: 0.4; position: absolute; inset: 0;"></video>
-        <video id="cameraPreview" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); position: absolute; inset: 0; -webkit-mask-image: radial-gradient(ellipse 55% 75% at 50% 40%, black 40%, transparent 95%); mask-image: radial-gradient(ellipse 55% 75% at 50% 40%, black 40%, transparent 95%);"></video>
-      </div>
+<div class="camera-layout">
+  <div class="panel camera-main-panel">
+    <div class="camera-shell">
+      <video id="cameraPreview" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); position: absolute; inset: 0;"></video>
 
       <div id="photoPreviewContainer" class="is-hidden" style="position: absolute; inset: 0; background: #000; z-index: 5;">
         <img id="photoPreview" src="" alt="촬영 미리보기" style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);">
@@ -24,23 +330,36 @@
 
       <div id="cameraGuide" aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center;">
         <svg width="100%" height="100%" viewBox="0 0 400 533" preserveAspectRatio="xMidYMid meet" style="width: 90%; height: 90%; opacity: 0.8;">
-          <path d="M60,533 C60,420 100,380 140,370 L145,340 C120,320 115,280 115,200 C115,80 285,80 285,200 C285,280 280,320 255,340 L260,370 C300,380 340,420 340,533" fill="none" stroke="var(--accent-neon)" stroke-width="2.5" stroke-dasharray="8,8" />
-          <line x1="200" y1="100" x2="200" y2="400" stroke="rgba(0, 255, 157, 0.2)" stroke-width="1" stroke-dasharray="4,4" />
-          <path d="M160,200 L240,200" fill="none" stroke="rgba(0, 255, 157, 0.3)" stroke-width="1" stroke-dasharray="4,4" />
+          <ellipse id="cameraGuideOutline" cx="200" cy="232" rx="98" ry="136" fill="none" stroke="rgba(255, 255, 255, 0.92)" stroke-width="3" stroke-linecap="round" style="transition: stroke 0.2s ease, filter 0.2s ease, opacity 0.2s ease;" />
+          <path id="cameraGuideCenterLine" d="M200 102 L200 366" fill="none" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1.2" stroke-linecap="round" style="transition: stroke 0.2s ease, opacity 0.2s ease;" />
+          <path id="cameraGuideEyeLine" d="M118 226 L282 226" fill="none" stroke="rgba(255, 255, 255, 0.18)" stroke-width="1.2" stroke-linecap="round" style="transition: stroke 0.2s ease, opacity 0.2s ease;" />
+          <path id="cameraGuideNoseLine" d="M200 196 L200 276" fill="none" stroke="rgba(255, 255, 255, 0.74)" stroke-width="3.2" stroke-linecap="round" style="transition: stroke 0.2s ease, opacity 0.2s ease;" />
         </svg>
       </div>
 
-      <div id="cameraFallback" class="camera-fallback is-hidden" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; text-align: center;">
+      <div id="cameraShutterFlash" class="camera-shutter-flash" aria-hidden="true"></div>
+
+      <div id="cameraCountdown" class="camera-countdown is-hidden" aria-live="polite">
+        <div class="camera-countdown-ring">
+          <span id="cameraCountdownValue" class="camera-countdown-value">3</span>
+        </div>
+      </div>
+
+      <div id="cameraAutoHint" class="camera-auto-hint">
+        얼굴이 가이드에 맞으면 3초 후 자동 촬영됩니다.
+      </div>
+
+      <div id="cameraFallback" class="camera-fallback is-hidden" style="position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; text-align: center;">
         <p>카메라 연결에 실패했습니다.<br>브라우저 권한 설정을 확인해 주세요.</p>
       </div>
     </div>
 
-    <div style="padding: 24px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <div class="camera-footer">
       <p id="cameraStatus" class="camera-status" style="font-weight: 600; color: var(--text-secondary);">가이드 라인에 얼굴을 맞춰 주세요.</p>
 
       <div class="button-row" id="cameraControls" style="display: flex; gap: 12px;">
         <button id="cameraToggleBtn" class="btn btn-dark" type="button" style="height: 48px;">카메라 끄기</button>
-        <button id="captureBtn" class="btn btn-primary is-hidden" type="button" style="height: 48px;">사진 촬영</button>
+        <button id="captureBtn" class="btn btn-primary is-hidden" type="button" style="height: 48px;">즉시 촬영</button>
         <button id="cameraSwitchBtn" class="btn btn-dark" type="button" style="height: 48px; padding: 0 20px;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
         </button>
@@ -53,26 +372,66 @@
     </div>
   </div>
 
-  <div class="stack" style="gap: 24px;">
+  <div class="stack camera-side-panel camera-side-stack">
     <div class="panel">
-      <h3 class="section-title" style="font-size: 18px;">촬영 가이드</h3>
-      <div class="stack" style="gap: 16px; margin-top: 16px;">
-        <div style="display: flex; gap: 12px; align-items: flex-start;">
-          <div style="width: 24px; height: 24px; background: var(--accent-neon); border-radius: 6px; flex-shrink: 0;"></div>
-          <p class="section-copy" style="font-size: 14px;">얼굴에 빛이 고르게 들어오는 위치에서 촬영해 주세요.</p>
+      <div class="camera-condition-header">
+        <div>
+          <h3 class="section-title" style="font-size: 18px; margin-bottom: 6px;">실시간 촬영 체크</h3>
+          <p class="section-copy" style="margin: 0; font-size: 13px; color: #64748b;">체크 5개가 모두 켜지면 3초 뒤 자동 촬영됩니다.</p>
         </div>
-        <div style="display: flex; gap: 12px; align-items: flex-start;">
-          <div style="width: 24px; height: 24px; background: var(--accent-neon); border-radius: 6px; flex-shrink: 0;"></div>
-          <p class="section-copy" style="font-size: 14px;">모자, 마스크, 진한 필터는 벗은 상태가 가장 좋습니다.</p>
+        <div id="cameraConditionSummary" class="camera-condition-summary">0 / 5 완료</div>
+      </div>
+
+      <div class="camera-checklist">
+        <div id="conditionFaceItem" class="camera-checklist-item" data-state="pending">
+          <div class="camera-checklist-step" id="conditionFaceIcon">○</div>
+          <div>
+            <p class="camera-checklist-title">한 명의 얼굴 감지</p>
+            <p class="camera-checklist-copy">카메라 안에 한 사람의 얼굴만 선명하게 보이도록 맞춰 주세요.</p>
+            <p id="conditionFaceStatus" class="camera-condition-status">얼굴을 찾는 중입니다.</p>
+          </div>
         </div>
-        <div style="display: flex; gap: 12px; align-items: flex-start;">
-          <div style="width: 24px; height: 24px; background: var(--accent-neon); border-radius: 6px; flex-shrink: 0;"></div>
-          <p class="section-copy" style="font-size: 14px;">업로드가 성공하면 설문 단계로 이동하고, 그동안 서버는 비동기 분석을 진행합니다.</p>
+
+        <div id="conditionObstructionItem" class="camera-checklist-item" data-state="pending">
+          <div class="camera-checklist-step" id="conditionObstructionIcon">○</div>
+          <div>
+            <p class="camera-checklist-title">손이나 가림 없음</p>
+            <p class="camera-checklist-copy">손, 휴대폰, 머리카락 같은 가림 요소가 얼굴 가이드 안쪽으로 들어오지 않게 유지해 주세요.</p>
+            <p id="conditionObstructionStatus" class="camera-condition-status">가림 여부를 확인하는 중입니다.</p>
+          </div>
+        </div>
+
+        <div id="conditionCenterItem" class="camera-checklist-item" data-state="pending">
+          <div class="camera-checklist-step" id="conditionCenterIcon">○</div>
+          <div>
+            <p class="camera-checklist-title">가이드 중앙 정렬</p>
+            <p class="camera-checklist-copy">얼굴 중심이 윤곽선 안쪽 중앙에 오도록 천천히 위치를 맞춰 주세요.</p>
+            <p id="conditionCenterStatus" class="camera-condition-status">얼굴이 감지되면 바로 확인합니다.</p>
+          </div>
+        </div>
+
+        <div id="conditionDistanceItem" class="camera-checklist-item" data-state="pending">
+          <div class="camera-checklist-step" id="conditionDistanceIcon">○</div>
+          <div>
+            <p class="camera-checklist-title">적정 거리 유지</p>
+            <p class="camera-checklist-copy">너무 가깝거나 멀지 않게 얼굴 전체가 자연스럽게 들어오면 좋습니다.</p>
+            <p id="conditionDistanceStatus" class="camera-condition-status">거리를 아직 확인하지 못했습니다.</p>
+          </div>
+        </div>
+
+        <div id="conditionAngleItem" class="camera-checklist-item" data-state="pending">
+          <div class="camera-checklist-step" id="conditionAngleIcon">○</div>
+          <div>
+            <p class="camera-checklist-title">정면 각도 유지</p>
+            <p class="camera-checklist-copy">고개를 과하게 기울이지 말고 정면을 바라보면 자동 촬영이 더 안정적입니다.</p>
+            <p id="conditionAngleStatus" class="camera-condition-status">정면 각도를 아직 확인하지 못했습니다.</p>
+          </div>
         </div>
       </div>
+
     </div>
 
-    <a href="/customer/" class="btn btn-dark" style="width: 100%; border: 1px solid var(--line); background: white; color: var(--bg-dark);">이전 단계로</a>
+    <a href="/customer/menu/" class="btn btn-dark" style="width: 100%; border: 1px solid var(--line); background: white; color: var(--bg-dark);">이전 단계로</a>
   </div>
 </div>
 
@@ -86,5 +445,5 @@
     csrfToken: "{{ csrf_token }}"
   };
 </script>
-<script src="/static/customer/js/camera.js?v=0331-flow-fix"></script>
+<script src="/static/customer/js/camera.js?v=0401-mediapipe-face"></script>
 {% endblock %}
