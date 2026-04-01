@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}" />
     {% block extra_head %}{% endblock %}
   </head>
-  <body>
+  <body data-has-session="{% if request.session.customer_id or request.session.admin_id or request.session.designer_id %}true{% else %}false{% endif %}">
     <div class="site-shell">
       <header class="site-header">
         <div class="site-header-container">
@@ -69,6 +69,23 @@
       });
     </script>
     {% endif %}
+    <script>
+      window.addEventListener('pageshow', function (event) {
+        const restoredFromBackForward = event.persisted || (
+          window.performance &&
+          window.performance.getEntriesByType &&
+          window.performance.getEntriesByType('navigation')[0] &&
+          window.performance.getEntriesByType('navigation')[0].type === 'back_forward'
+        );
+        if (!restoredFromBackForward) {
+          return;
+        }
+        const hasSessionPage = document.body.dataset.hasSession === 'true';
+        if (hasSessionPage) {
+          window.location.reload();
+        }
+      });
+    </script>
     {% block page_scripts %}{% endblock %}
   </body>
 </html>

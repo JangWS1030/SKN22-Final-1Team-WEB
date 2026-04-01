@@ -5,6 +5,7 @@ from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 
 from app.api.v1.admin_services import register_admin
 from app.api.v1.services_django import get_former_recommendations
@@ -154,6 +155,7 @@ def privacy_policy_page(request):
     return render(request, "pages/privacy_policy.html")
 
 
+@never_cache
 def client_login_page(request):
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
@@ -195,6 +197,7 @@ def client_login_page(request):
     return _render_customer_login(request)
 
 
+@never_cache
 def client_survey_page(request, gender=None):
     client = get_session_customer(request=request)
     if not client:
@@ -213,6 +216,7 @@ def client_survey_page(request, gender=None):
     )
 
 
+@never_cache
 def client_menu_page(request):
     client = get_session_customer(request=request)
     if not client:
@@ -227,6 +231,7 @@ def client_menu_page(request):
     )
 
 
+@never_cache
 def client_camera_page(request):
     client = get_session_customer(request=request)
     if not client:
@@ -238,6 +243,7 @@ def client_camera_page(request):
     )
 
 
+@never_cache
 def client_recommendation_page(request):
     client = get_session_customer(request=request)
     if not client:
@@ -249,6 +255,7 @@ def client_recommendation_page(request):
     )
 
 
+@never_cache
 def client_recommendation_history_page(request):
     client = get_session_customer(request=request)
     if not client:
@@ -266,6 +273,7 @@ def client_recommendation_history_page(request):
     )
 
 
+@never_cache
 def client_trend_page(request):
     client = get_session_customer(request=request)
     if not client:
@@ -277,6 +285,7 @@ def client_trend_page(request):
     )
 
 
+@never_cache
 def customer_consultation_complete_page(request):
     client = get_session_customer(request=request)
     if not client:
@@ -291,6 +300,7 @@ def customer_consultation_complete_page(request):
     )
 
 
+@never_cache
 def customer_resume_page(request):
     client = get_session_customer(request=request)
     if not client:
@@ -302,6 +312,7 @@ def customer_resume_page(request):
     return redirect(target)
 
 
+@never_cache
 def admin_login_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -310,6 +321,7 @@ def admin_login_page(request):
     return _render_partner_login(request)
 
 
+@never_cache
 def admin_signup_page(request):
     if request.method == "POST":
         password = request.POST.get("password", "")
@@ -364,6 +376,7 @@ def admin_signup_page(request):
     return render(request, "admin/signup.html")
 
 
+@never_cache
 def designer_signup_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -430,6 +443,7 @@ def designer_signup_page(request):
     return render(request, "admin/designer_signup.html", {"active_shop": admin})
 
 
+@never_cache
 def designer_management_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -450,6 +464,7 @@ def designer_management_page(request):
     )
 
 
+@never_cache
 def designer_delete_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -487,6 +502,7 @@ def designer_delete_page(request):
     )
 
 
+@never_cache
 def admin_dashboard_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -511,6 +527,7 @@ def admin_dashboard_page(request):
     )
 
 
+@never_cache
 def designer_dashboard_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -532,6 +549,7 @@ def designer_dashboard_page(request):
     )
 
 
+@never_cache
 def partner_verify(request):
     if request.method != "POST":
         return JsonResponse({"status": "error", "message": "POST method is required."}, status=405)
@@ -640,6 +658,7 @@ def partner_verify(request):
     )
 
 
+@never_cache
 def partner_designer_list(request):
     if _has_standalone_customer_session(request=request):
         return JsonResponse(
@@ -667,6 +686,7 @@ def partner_designer_list(request):
     return JsonResponse(designers, safe=False)
 
 
+@never_cache
 def enter_partner_dashboard(request):
     if _has_standalone_customer_session(request=request):
         return _render_partner_login(
@@ -698,6 +718,7 @@ def enter_partner_dashboard(request):
     return JsonResponse({"status": "success", "redirect": "/partner/dashboard/"})
 
 
+@never_cache
 def customer_logout_page(request):
     clear_customer_session(request=request)
     if get_session_designer(request=request) is not None:
@@ -707,6 +728,7 @@ def customer_logout_page(request):
     return redirect("index")
 
 
+@never_cache
 def designer_logout_page(request):
     clear_designer_session(request=request)
     revoke_owner_dashboard(request=request)
@@ -715,6 +737,7 @@ def designer_logout_page(request):
     return redirect("partner_index")
 
 
+@never_cache
 def logout_page(request):
     clear_customer_session(request=request)
     clear_admin_session(request=request)
