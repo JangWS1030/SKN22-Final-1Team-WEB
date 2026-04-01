@@ -51,6 +51,11 @@ class FrontCompatibilityTests(APITestCase):
         session["admin_name"] = designer.shop.name
         session.save()
 
+    def _assert_never_cache_headers(self, response):
+        self.assertIn("Cache-Control", response)
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertIn("no-cache", response["Cache-Control"])
+
     def test_customer_form_post_creates_session_and_redirects(self):
         response = self.client.post(
             "/customer/",
@@ -68,6 +73,43 @@ class FrontCompatibilityTests(APITestCase):
         session = self.client.session
         self.assertIsNotNone(session.get("customer_id"))
         self.assertEqual(session.get("customer_name"), "Kim User")
+
+    def test_customer_menu_sets_never_cache_headers(self):
+        client = Client.objects.create(name="Cache Client", phone="01011112222")
+        session = self.client.session
+        session["customer_id"] = client.id
+        session["customer_name"] = client.name
+        session.save()
+
+        response = self.client.get("/customer/menu/")
+
+        self.assertEqual(response.status_code, 200)
+        self._assert_never_cache_headers(response)
+
+    def test_partner_login_sets_never_cache_headers(self):
+        response = self.client.get("/partner/")
+
+        self.assertEqual(response.status_code, 200)
+        self._assert_never_cache_headers(response)
+
+    def test_partner_login_includes_bfcache_reload_script(self):
+        response = self.client.get("/partner/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "window.addEventListener('pageshow'", html=False)
+
+    def test_customer_logout_redirect_sets_never_cache_headers(self):
+        client = Client.objects.create(name="Logout Client", phone="01011113333")
+        session = self.client.session
+        session["customer_id"] = client.id
+        session["customer_name"] = client.name
+        session.save()
+
+        response = self.client.get("/customer/logout/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].endswith("/"))
+        self._assert_never_cache_headers(response)
 
     @override_settings(
         DEBUG=True,
