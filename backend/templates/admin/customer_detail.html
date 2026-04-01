@@ -1,0 +1,80 @@
+{% extends "layouts/base_site.html" %}
+{% load static %}
+
+{% block page_title %}MirrAI | Customer Detail{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">고객 <span>스타일 분석 정보</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">고객님이 등록하신 스타일 취향 및 설문 상세 데이터입니다.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<style>
+  .detail-card { max-width: 800px; margin: 0 auto; padding: 32px !important; border-radius: 24px !important; }
+  .info-group { margin-bottom: 32px; border-bottom: 1.5px solid var(--line); padding-bottom: 24px; }
+  .info-group:last-child { border-bottom: none; }
+  .info-label { font-size: 13px; font-weight: 700; color: var(--text-secondary); margin-bottom: 12px; display: block; }
+  .survey-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .survey-item { background: var(--bg-light); padding: 16px; border-radius: 12px; }
+  .survey-tag { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: block; }
+  .survey-value { font-size: 16px; font-weight: 700; color: var(--bg-dark); }
+  .back-btn { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); text-decoration: none; font-size: 14px; margin-bottom: 24px; }
+  .back-btn:hover { color: var(--bg-dark); }
+</style>
+
+<div class="customer-layout" style="display: block;">
+  <a href="{% url 'partner_staff_dashboard' %}" class="back-btn">← 대시보드로 돌아가기</a>
+  
+  <div class="panel detail-card" id="detailContent">
+    <div style="text-align: center; padding: 60px; opacity: 0.5;">데이터를 불러오는 중...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  (async function() {
+    const clientId = "{{ client_id }}";
+    const detailContent = document.getElementById('detailContent');
+
+    try {
+      // 기존 API 활용 (상세 정보 가져오기)
+      const response = await fetch(`/api/v1/customers/${clientId}/`);
+      const data = await response.json();
+      const customer = data.data || data;
+
+      if (!customer) throw new Error('Customer not found');
+
+      // 템플릿 렌더링
+      detailContent.innerHTML = `
+        <div class="info-group">
+          <h3 class="section-title" style="font-size: 22px; margin-bottom: 8px;">${customer.name} 고객님</h3>
+          <p style="color: var(--text-secondary); font-size: 14px;">${customer.phone} | 분석일: ${new Date(customer.created_at).toLocaleDateString()}</p>
+        </div>
+
+        <div class="info-group">
+          <span class="info-label">스타일 취향 분석 (Survey Data)</span>
+          <div class="survey-grid">
+            <div class="survey-item"><span class="survey-tag">희망 길이</span><div class="survey-value">${customer.survey?.target_length || '미지정'}</div></div>
+            <div class="survey-item"><span class="survey-tag">선호 분위기</span><div class="survey-value">${customer.survey?.target_vibe || '미지정'}</div></div>
+            <div class="survey-item"><span class="survey-tag">두피 상태</span><div class="survey-value">${customer.survey?.scalp_type || '미지정'}</div></div>
+            <div class="survey-item"><span class="survey-tag">모발 컬러</span><div class="survey-value">${customer.survey?.hair_colour || '미지정'}</div></div>
+            <div class="survey-item"><span class="survey-tag">예산 범위</span><div class="survey-value">${customer.survey?.budget_range || '미지정'}</div></div>
+            <div class="survey-item"><span class="survey-tag">연령대</span><div class="survey-value">${customer.age_input || customer.age_group || '미지정'}</div></div>
+          </div>
+        </div>
+
+        <div class="info-group" style="border-bottom: none; margin-bottom: 0;">
+          <span class="info-label">디자이너 상담 메모</span>
+          <textarea class="form-input" style="height: 120px; padding: 16px; font-size: 14px;" placeholder="상담 내용을 입력하세요..."></textarea>
+          <button class="btn btn-dark" style="margin-top: 16px; width: 100%;">상담 내용 저장</button>
+        </div>
+      `;
+    } catch (e) {
+      detailContent.innerHTML = `<div style="text-align: center; padding: 60px; color: var(--status-red);">고객 정보를 불러올 수 없습니다.</div>`;
+    }
+  })();
+</script>
+{% endblock %}

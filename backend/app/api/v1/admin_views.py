@@ -1,4 +1,4 @@
-﻿from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404
 import logging
 
 from django.utils import timezone
@@ -18,6 +18,7 @@ from app.api.v1.admin_serializers import (
     ConsultationNoteCreateSerializer,
     ChatbotAskSerializer,
     RefreshTokenSerializer,
+    DesignerSerializer,
 )
 from app.api.v1.admin_services import (
     _scoped_client_queryset,
@@ -520,3 +521,14 @@ class AdminAiHealthView(CompatEnvelopeAPIView):
             }
         )
 
+
+class DesignerListView(CompatEnvelopeAPIView):
+    @extend_schema(summary="List designers for the current shop session", responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
+    def get(self, request):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, _ = staff
+        designers = Designer.objects.filter(shop=admin, is_active=True)
+        serializer = DesignerSerializer(designers, many=True)
+        return Response(serializer.data)

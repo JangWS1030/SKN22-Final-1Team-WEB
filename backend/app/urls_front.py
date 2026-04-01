@@ -39,9 +39,11 @@ urlpatterns = [
     path("partner/", admin_login_page, name="partner_index"),
     path("partner/login/", admin_login_page, name="partner_login"),
     path("partner/signup/", admin_signup_page, name="partner_signup"),
+    path("partner/designer-select/", lambda r: render(r, "admin/designer_select.html"), name="partner_designer_select"),
     path("partner/verify/", partner_verify, name="partner_verify"),
     path("partner/dashboard/", admin_dashboard_page, name="partner_dashboard"),
     path("partner/staff/", designer_dashboard_page, name="partner_staff_dashboard"),
+    path("partner/customer-detail/<int:pk>/", lambda r, pk: render(r, "admin/customer_detail.html", {"client_id": pk}), name="partner_customer_detail"),
     path("logout/", logout_page, name="logout"),
     path("api/v1/designers/", partner_designer_list, name="partner_designer_list"),
     # Legacy aliases kept for older links and docs.

@@ -64,3 +64,10 @@ class AdminTrendFilterSerializer(serializers.Serializer):
     age_segment = serializers.CharField(required=False, allow_blank=True)
     age_group = serializers.CharField(required=False, allow_blank=True)
 
+
+class DesignerSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    phone = serializers.CharField(required=False, allow_null=True)
+    is_active = serializers.BooleanField()
+

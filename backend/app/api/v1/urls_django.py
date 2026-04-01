@@ -1,4 +1,4 @@
-﻿from django.urls import path
+from django.urls import path
 
 from .django_views import (
     CaptureStatusView,
@@ -38,6 +38,7 @@ from .admin_views import (
     AdminChatbotAskView,
     AdminAiHealthView,
     StyleReportView,
+    DesignerListView,
 )
 
 urlpatterns = [
@@ -76,5 +77,5 @@ urlpatterns = [
     path('admin/ai-health/', AdminAiHealthView.as_view(), name='admin-ai-health'),
     path('admin/trend-report/', AdminTrendReportView.as_view(), name='admin-trend-report'),
     path('admin/style-report/', StyleReportView.as_view(), name='admin-style-report'),
+    path('admin/designers/', DesignerListView.as_view(), name='admin-designers'),
 ]
-
