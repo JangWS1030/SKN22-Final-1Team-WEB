@@ -16,10 +16,27 @@ AI 기반 퍼스널 헤어 스타일 분석 및 추천 솔루션, **MirrAI** 프
 
 ---
 
+## 🏗️ 비즈니스 계층 및 세션 구조
+
+MirrAI는 매장 중심의 B2B2C 서비스 구조를 채택하여 체계적인 고객 관리를 지원합니다.
+
+### **1. 계층 구조 (Hierarchy)**
+- **파트너 (Partner / Store)**: 최상위 관리 계정. 매장(사업자) 정보를 관리하고 소속 디자이너를 제어합니다.
+- **디자이너 (Designer)**: 매장에 소속된 전문가. 본인의 PIN 인증을 통해 로그인하며 직접적인 고객 상담을 담당합니다.
+- **고객 (Customer)**: 서비스를 이용하는 최종 사용자. 디자이너 세션과 연결되어 분석 리포트를 생성합니다.
+
+### **2. 인증 및 세션 흐름 (Auth Flow)**
+1.  **파트너 인증**: `관리자 연락처`와 `비밀번호`로 매장 세션을 활성화합니다.
+2.  **디자이너 인증**: 활성화된 매장 내 디자이너 목록 중 본인을 선택하고 `4자리 PIN`으로 2차 인증을 완료합니다.
+3.  **세션 통합**: `매장(Admin) > 디자이너(Designer)` 계층이 결합된 통합 세션이 유지됩니다.
+4.  **고객 매칭**: 디자이너 세션 상태에서 등록된 고객은 자동으로 해당 디자이너의 관리 대상으로 배정되어 실시간 대시보드에 노출됩니다.
+
+---
+
 ## ✨ 핵심 기능
 
 - **정교한 스타일 설문**: 5가지 카테고리(길이, 분위기, 모발 상태, 컬러, 예산) 기반 취향 수집 및 벡터화
-- **AI 페이스 분석**: 
+- **AI 페이스 분석**:
   - **프론트엔드**: MediaPipe Face Landmarker를 활용한 실시간 얼굴 분석 및 **실시간 품질 체크리스트**, **3초 스마트 자동 촬영(Auto-capture)** 기능 제공
   - **백엔드**: OpenCV 기반 이미지 전처리 및 AI 엔진 연동을 통한 정밀 얼굴형 매칭 시스템- **데이터 보안 및 정책**:
   - 개인정보 수집 및 이용 동의 프로세스 강화 (#111)
@@ -122,7 +139,9 @@ python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-t
 로컬 개발 환경(`http://localhost:8000`) 기준의 전체 페이지 맵입니다.
 
 ### **1. 고객 서비스 (Customer Journey)**
+
 사용자가 개인화된 헤어 스타일 추천을 받는 여정입니다.
+
 - **서비스 시작/로그인**: [http://localhost:8000/customer/](http://localhost:8000/customer/)
 - **스타일 취향 설문**: [http://localhost:8000/customer/survey/](http://localhost:8000/customer/survey/)
 - **페이스 정밀 스캔 (카메라)**: [http://localhost:8000/customer/camera/](http://localhost:8000/customer/camera/)
@@ -130,12 +149,15 @@ python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-t
 - **로그아웃**: [http://localhost:8000/customer/logout/](http://localhost:8000/customer/logout/)
 
 ### **2. 파트너 센터 (Partner & Designer)**
+
 샵 관리자와 디자이너가 고객 데이터를 관리하고 상담을 진행하는 영역입니다.
+
 - **파트너 로그인/인증**: [http://localhost:8000/partner/login/](http://localhost:8000/partner/login/)
 - **파트너 회원가입**: [http://localhost:8000/partner/signup/](http://localhost:8000/partner/signup/)
 - **통합 관리 대시보드**: [http://localhost:8000/partner/dashboard/](http://localhost:8000/partner/dashboard/)
 
 ### **3. 시스템 및 데모 (Dev & Demo)**
+
 - **통합 기능 쇼케이스**: [http://localhost:8000/demo/discovery/](http://localhost:8000/demo/discovery/)
 - **장고 표준 관리자 (DB 제어)**: [http://localhost:8000/admin/](http://localhost:8000/admin/)
 - **Interactive API 문서 (Swagger)**: [http://localhost:8000/docs/](http://localhost:8000/docs/)
@@ -162,6 +184,7 @@ python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-t
 본 프로젝트는 고가용성과 관리 편의성을 위해 **AWS 기반의 클라우드 네이티브 아키텍처**를 채택하고 있습니다.
 
 ### **인프라 구성 요소 (Architecture)**
+
 - **Orchestration**: AWS Elastic Beanstalk (Docker Platform)를 활용한 자동 확장 및 로드 밸런싱
 - **Container Registry**: Amazon ECR을 통한 안전한 Docker 이미지 관리
 - **Storage**: Amazon S3를 사용하여 사용자 업로드 이미지 및 배포 버전 관리
@@ -169,6 +192,7 @@ python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-t
 - **Infrastructure as Code**: Terraform을 통해 VPC, ECR, S3 등 모든 리소스를 코드로 정의 및 관리
 
 ### **보안 가이드 (Security)**
+
 - **IAM OIDC**: GitHub Actions와의 연동 시 고정된 액세스 키 대신 OIDC를 사용하여 보안 강화
 - **환경 변수 관리**: 민감한 정보는 AWS SSM Parameter Store 및 EB Environment Properties를 통해 안전하게 주입
 - **Static Serving**: WhiteNoise 라이브러리를 활용하여 Django 내에서 효율적인 정적 파일 서빙 및 보안 유지
@@ -180,14 +204,16 @@ python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-t
 본 프로젝트는 **GitHub Actions**와 **AWS**를 연동하여 완전 자동화된 배포 파이프라인을 구축하였습니다.
 
 ### **배포 워크플로우 (GitHub Actions)**
-1.  **Trigger**: `main` 브랜치에 코드 Push 발생 시 가동 (backend 소스 및 배포 설정 변경 시)
-2.  **Build**: `backend/Dockerfile`을 기반으로 Docker 이미지 빌드
-3.  **Registry**: 빌드된 이미지를 **Amazon ECR**에 업로드 (이미지 태그는 Git SHA 활용)
-4.  **Configuration**: 최신 이미지 URI를 `Dockerrun.aws.json`에 자동 주입
-5.  **Deployment**: **AWS Elastic Beanstalk** 환경에 새로운 애플리케이션 버전 생성 및 업데이트 트리거
-6.  **Monitoring**: 배포 완료 상태를 감시하여 최종 성공 여부 확인
+
+1. **Trigger**: `main` 브랜치에 코드 Push 발생 시 가동 (backend 소스 및 배포 설정 변경 시)
+2. **Build**: `backend/Dockerfile`을 기반으로 Docker 이미지 빌드
+3. **Registry**: 빌드된 이미지를 **Amazon ECR**에 업로드 (이미지 태그는 Git SHA 활용)
+4. **Configuration**: 최신 이미지 URI를 `Dockerrun.aws.json`에 자동 주입
+5. **Deployment**: **AWS Elastic Beanstalk** 환경에 새로운 애플리케이션 버전 생성 및 업데이트 트리거
+6. **Monitoring**: 배포 완료 상태를 감시하여 최종 성공 여부 확인
 
 ### **인프라 구성 (IaC)**
+
 - **Terraform**: S3, ECR, VPC 등 핵심 AWS 리소스를 코드로 관리하여 일관된 인프라 환경 보장
 - **AWS OIDC**: 액세스 키 노출 없는 안전한 GitHub-AWS 인증 연동
 
@@ -202,21 +228,3 @@ python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-t
 - **Infra**: AWS Elastic Beanstalk, ECR, S3, GitHub Actions
 
 ---
-
-## 🔑 로컬 테스트 계정 정보 (Local Test Accounts)
-
-로컬 환경(`seed_test_data.py` 실행 시 생성됨)에서 테스트에 사용할 수 있는 계정 정보입니다.
-
-### **1. 파트너/관리자 (Partner/Admin)**
-
-- **접속 경로**: [http://localhost:8000/partner/](http://localhost:8000/partner/)
-- **계정 1**: `01012345678` / `partner1234` (기본 관리자)
-- **계정 2**: `01011112222` / `testpartner123` (테스트 파트너)
-- **역할**: 대시보드 관리, 상담 신청 확인, 스타일 통계 리포트 조회
-
-### **2. 고객 (Customer)**
-
-- **접속 경로**: [http://localhost:8000/customer/](http://localhost:8000/customer/)
-- **테스트 고객 1**: `01099998888` (홍길동)
-- **테스트 고객 2**: `01033334444` (김철수)
-- **설명**: 전화번호 입력 기반으로 접근하며, 설문조사 및 카메라 분석 기능을 테스트할 수 있습니다.

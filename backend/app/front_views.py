@@ -266,20 +266,18 @@ def partner_verify(request):
         return JsonResponse({"status": "error", "message": "POST method is required."}, status=405)
 
     designer_id = (request.POST.get("designer_id") or "").strip()
-    business_number = _normalize_business_number(
-        request.POST.get("biz_number", "") or request.POST.get("business_number", "")
-    )
+    phone = _normalize_phone(request.POST.get("phone", ""))
     password = (request.POST.get("password") or "").strip()
     pin = (request.POST.get("pin") or "").strip()
 
-    if business_number and password:
+    if phone and password:
         admin = AdminAccount.objects.filter(
-            business_number__in=_business_number_variants(business_number),
+            phone=phone,
             is_active=True,
         ).first()
         if not admin or not check_password(password, admin.password_hash):
             return JsonResponse(
-                {"status": "error", "message": "사업자등록번호 또는 비밀번호를 다시 확인해 주세요."},
+                {"status": "error", "message": "전화번호 또는 비밀번호를 다시 확인해 주세요."},
                 status=401,
             )
 
