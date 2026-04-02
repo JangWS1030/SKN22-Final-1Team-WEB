@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}" />
     {% block extra_head %}{% endblock %}
   </head>
-  <body>
+  <body data-has-session="{% if request.session.customer_id or request.session.admin_id or request.session.designer_id %}true{% else %}false{% endif %}">
     <div class="site-shell">
       <header class="site-header">
         <div class="site-header-container">
@@ -61,12 +61,11 @@
                 <a href="{% url 'logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">로그아웃</a>
               </div>
             {% elif request.session.customer_name %}
-              <!-- 매장 세션이 없을 때만 고객명 노출 -->
               <div style="display: flex; align-items: center; gap: 12px; margin-left: 12px;">
-                <span style="font-size: 13px; color: rgba(255,255,255,0.8); font-weight: 600;">
-                  {{ request.session.customer_name }}님
+                <span class="brand-sub" style="text-transform: none; color: white;">
+                  <strong>{{ request.session.customer_name }}</strong>님
                 </span>
-                <a href="{% url 'logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">로그아웃</a>
+                <a href="{% url 'customer_logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px;">로그아웃</a>
               </div>
             {% else %}
               <a href="{% url 'partner_index' %}?next=/partner/dashboard/" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: var(--accent-neon); color: var(--bg-dark); border: none;">로그인</a>
@@ -75,18 +74,40 @@
         </div>
       </header>
 
-      <!-- Hero Section: Header + Top Messaging -->
       <section class="hero-section">
         {% block hero_content %}{% endblock %}
       </section>
 
-      <!-- Content Section: Main UI Elements -->
       <section class="content-section">
         {% block content %}{% endblock %}
       </section>
-      
+
       {% include "components/footer.html" %}
     </div>
+    {% if popup_message %}
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        alert('{{ popup_message|escapejs }}');
+      });
+    </script>
+    {% endif %}
+    <script>
+      window.addEventListener('pageshow', function (event) {
+        const restoredFromBackForward = event.persisted || (
+          window.performance &&
+          window.performance.getEntriesByType &&
+          window.performance.getEntriesByType('navigation')[0] &&
+          window.performance.getEntriesByType('navigation')[0].type === 'back_forward'
+        );
+        if (!restoredFromBackForward) {
+          return;
+        }
+        const hasSessionPage = document.body.dataset.hasSession === 'true';
+        if (hasSessionPage) {
+          window.location.reload();
+        }
+      });
+    </script>
     {% block page_scripts %}{% endblock %}
   </body>
 </html>

@@ -173,6 +173,7 @@
     const showReportBtn = document.getElementById('showReportBtn');
     const listView = document.getElementById('listViewContainer');
     const reportView = document.getElementById('reportViewContainer');
+    let dashboardDesigners = [];
 
     async function fetchDesigners() {
       if (!designerSelect) return;
@@ -236,6 +237,43 @@
       });
       renderCustomers(filtered);
     }
+
+    async function fetchDesigners() {
+      try {
+        const response = await fetch('/api/v1/designers/');
+        const data = await response.json();
+        dashboardDesigners = Array.isArray(data) ? data : (data.data || []);
+      } catch (e) {
+        dashboardDesigners = [];
+      }
+    }
+
+    async function assignCustomer(customerId) {
+      const select = document.getElementById(`designerSelect-${customerId}`);
+      if (!select || !select.value) {
+        alert('배정할 디자이너를 선택해 주세요.');
+        return;
+      }
+      try {
+        const response = await fetch(`/api/v1/customers/${customerId}/assign/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}',
+          },
+          body: JSON.stringify({ designer_id: select.value }),
+        });
+        const data = await response.json();
+        if (!response.ok || (data && data.status === 'error')) {
+          alert(data.message || '배정에 실패했습니다.');
+          return;
+        }
+        fetchCustomers(customerSearchInput ? customerSearchInput.value : '');
+      } catch (e) {
+        alert('배정 요청 중 오류가 발생했습니다.');
+      }
+    }
+    window.assignCustomer = assignCustomer;
 
     function renderCustomers(customers) {
       if (!customerListBody) return;
