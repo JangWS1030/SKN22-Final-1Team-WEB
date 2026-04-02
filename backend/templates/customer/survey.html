@@ -5,84 +5,82 @@
 
 {% block extra_head %}
 <style>
-  /* Step 01(고객 정보 입력)과 완벽하게 동일한 카드 스타일 적용 */
+  /* 컴팩트하고 세련된 설문 카드 스타일 */
   .customer-input-card.survey-mode {
-    max-width: 700px;
+    max-width: 600px;
     margin: 0 auto;
-    padding: 32px !important;
-    border-radius: 24px !important;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
+    padding: 20px !important;
+    border-radius: 20px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
     background: white;
+    border: 1px solid #f0f0f0 !important;
   }
 
   .section-title.compact {
-    font-size: 22px !important;
-    margin-bottom: 24px !important;
-    display: flex;
-    align-items: center;
-    gap: 10px;
+    font-size: 18px !important;
+    margin-bottom: 14px !important;
+    font-weight: 800;
     color: var(--bg-dark);
+    justify-content: center; /* 타이틀 중앙 정렬로 더 깔끔하게 */
   }
 
   .section-title.compact::before {
-    content: '';
-    display: inline-block;
-    width: 4px; height: 20px;
-    background: var(--bg-dark); border-radius: 2px;
+    display: none; /* 선 제거하여 더 심플하게 */
   }
 
-  /* 설문 항목 레이아웃 최적화 */
+  /* 설문 항목 컨테이너 */
   .survey-container {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
   }
 
   .question-row {
-    padding-bottom: 16px;
-    border-bottom: 1px solid #f1f3f5;
-  }
-
-  .question-row:last-child {
+    padding: 0;
     border-bottom: none;
-    padding-bottom: 0;
   }
 
   .question-title {
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 700;
-    color: var(--bg-dark);
-    margin-bottom: 12px;
+    color: var(--text-primary);
+    margin-bottom: 6px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+  }
+  
+  .question-title span.q-num {
+    color: var(--accent-neon);
+    font-family: 'monospace';
+    font-size: 11px;
   }
 
   .survey-options {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
   }
   
-  /* 인덱스 페이지의 성별 버튼 스타일 계승 */
+  /* 버튼형 선택지 스타일 개선 */
   .survey-card {
     position: relative;
-    padding: 12px 10px;
-    border-radius: 12px;
-    background: #fbfbfc;
-    border: 1.5px solid var(--line);
+    padding: 6px 8px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1.2px solid #e2e8f0;
     text-align: center;
     cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 48px;
+    min-height: 36px;
   }
   
   .survey-card:hover {
-    border-color: #ccc;
-    background: #fafafa;
+    border-color: #cbd5e1;
+    background: #f8fafc;
   }
   
   .survey-card input[type="radio"] {
@@ -94,7 +92,7 @@
     background: var(--bg-dark);
     border-color: var(--bg-dark);
     color: white;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   }
   
   .survey-card.selected .survey-label {
@@ -102,42 +100,39 @@
   }
   
   .survey-label {
-    font-size: 13px;
+    font-size: 11.5px;
     font-weight: 600;
-    line-height: 1.3;
+    letter-spacing: -0.02em;
     word-break: keep-all;
   }
 
-  /* 하단 버튼 영역 인덱스 페이지와 통일 */
+  /* 하단 버튼 영역 */
   .action-row {
     display: flex;
-    gap: 12px;
-    margin-top: 32px;
+    gap: 10px;
+    margin-top: 20px;
   }
   
   .action-row .btn {
     flex: 1;
-    height: 52px;
-    border-radius: 14px;
-    font-size: 16px;
+    height: 40px;
+    border-radius: 12px;
+    font-size: 14px;
     font-weight: 700;
   }
 
   .btn-outline {
-    background: white;
-    color: var(--bg-dark);
-    border: 1.5px solid var(--line) !important;
+    background: #f8fafc;
+    color: var(--text-secondary);
+    border: 1.2px solid #e2e8f0 !important;
   }
 
   @media (max-width: 640px) {
     .customer-input-card.survey-mode {
-      padding: 24px 16px !important;
+      padding: 20px !important;
     }
     .survey-options {
       grid-template-columns: repeat(2, 1fr);
-    }
-    .action-row {
-      flex-direction: column-reverse;
     }
   }
 </style>
@@ -167,11 +162,11 @@
       {% if display_gender == 'male' %}
         <!-- 남성 설문 -->
         <div class="question-row">
-          <h3 class="question-title">1. 옆머리와 뒷머리는 어떤 느낌을 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q1.</span> 옆머리와 뒷머리 길이감</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q1" value="아주 짧고 깔끔하게" required>
-              <span class="survey-label">아주 짧고 깔끔하게</span>
+              <span class="survey-label">짧고 깔끔하게</span>
             </label>
             <label class="survey-card">
               <input type="radio" name="q1" value="너무 짧지 않게 자연스럽게">
@@ -185,7 +180,7 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">2. 투블럭 스타일은 어느 정도 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q2.</span> 투블럭 스타일 선호도</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q2" value="확실한 투블럭" required>
@@ -203,7 +198,7 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">3. 앞머리는 어떻게 연출하고 싶으신가요?</h3>
+          <h3 class="question-title"><span class="q-num">Q3.</span> 앞머리 연출 방식</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q3" value="올리는 스타일" required>
@@ -221,7 +216,7 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">4. 가르마 스타일은 어느 쪽에 가깝나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q4.</span> 가르마 스타일 여부</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q4" value="가르마 스타일 선호" required>
@@ -239,7 +234,7 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">5. 펌이나 볼륨감은 어느 정도 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q5.</span> 펌 및 볼륨감 정도</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q5" value="펌 없이 깔끔하게" required>
@@ -251,13 +246,13 @@
             </label>
             <label class="survey-card">
               <input type="radio" name="q5" value="컬감이 느껴지는 스타일">
-              <span class="survey-label">컬감이 느껴지게</span>
+              <span class="survey-label">컬감 강조</span>
             </label>
           </div>
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">6. 전체적으로 어떤 인상을 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q6.</span> 원하는 전체 인상</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q6" value="단정한" required>
@@ -281,7 +276,7 @@
       {% else %}
         <!-- 여성 설문 -->
         <div class="question-row">
-          <h3 class="question-title">1. 전체 길이는 어느 방향을 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q1.</span> 선호하는 머리 길이</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q1" value="짧게" required>
@@ -303,7 +298,7 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">2. 전체 실루엣은 어떤 느낌을 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q2.</span> 전체 실루엣 스타일</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q2" value="일자 느낌" required>
@@ -311,17 +306,17 @@
             </label>
             <label class="survey-card">
               <input type="radio" name="q2" value="레이어감 있는 스타일">
-              <span class="survey-label">레이어 스타일</span>
+              <span class="survey-label">레이어드</span>
             </label>
             <label class="survey-card">
               <input type="radio" name="q2" value="볼륨감 있는 스타일">
-              <span class="survey-label">볼륨 스타일</span>
+              <span class="survey-label">볼륨 강조</span>
             </label>
           </div>
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">3. 앞머리는 어떻게 하고 싶으신가요?</h3>
+          <h3 class="question-title"><span class="q-num">Q3.</span> 앞머리 유무 및 형태</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q3" value="앞머리 없이" required>
@@ -339,7 +334,7 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">4. 컬감은 어느 정도를 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q4.</span> 선호하는 컬 강도</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q4" value="생머리 느낌" required>
@@ -357,11 +352,11 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">5. 전체 분위기는 어떤 쪽이 좋으신가요?</h3>
+          <h3 class="question-title"><span class="q-num">Q5.</span> 추구하는 전체 분위기</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q5" value="내추럴한" required>
-              <span class="survey-label">내추럴한</span>
+              <span class="survey-label">내추럴</span>
             </label>
             <label class="survey-card">
               <input type="radio" name="q5" value="세련된">
@@ -379,11 +374,11 @@
         </div>
 
         <div class="question-row">
-          <h3 class="question-title">6. 변화 강도는 어느 정도를 원하시나요?</h3>
+          <h3 class="question-title"><span class="q-num">Q6.</span> 스타일 변화 강도</h3>
           <div class="survey-options">
             <label class="survey-card">
               <input type="radio" name="q6" value="최대한 무난하게" required>
-              <span class="survey-label">최대한 무난하게</span>
+              <span class="survey-label">무난하게</span>
             </label>
             <label class="survey-card">
               <input type="radio" name="q6" value="적당히 변화를 주고 싶음">

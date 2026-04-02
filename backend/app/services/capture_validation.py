@@ -43,7 +43,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
             "is_valid": False,
             "status": "NEEDS_RETAKE",
             "face_count": 0,
-            "reason_code": "decode_failed",
+            "reason_code": "too_dark",
             "message": "The image could not be processed. Please take the photo again.",
         }
 
