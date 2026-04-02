@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import re
+from typing import TYPE_CHECKING
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.http import HttpRequest, JsonResponse
@@ -9,7 +12,20 @@ from django.views.decorators.cache import never_cache
 
 from app.api.v1.admin_services import register_admin
 from app.api.v1.services_django import get_former_recommendations
-from app.models_django import AdminAccount, Client, Designer
+from app.services.model_team_bridge import (
+    create_designer_record,
+    get_admin_by_identifier,
+    get_admin_by_legacy_id,
+    get_admin_by_phone,
+    get_client_by_phone,
+    get_client_by_identifier,
+    get_designer_for_admin,
+    get_designers_for_admin,
+    get_legacy_admin_id,
+    get_legacy_designer_id,
+    update_designer_active_state,
+    upsert_client_record,
+)
 from app.session_state import (
     allow_owner_dashboard,
     can_access_owner_dashboard,
@@ -24,6 +40,9 @@ from app.session_state import (
     set_customer_session,
     set_designer_session,
 )
+
+if TYPE_CHECKING:
+    from app.models_django import AdminAccount, Client, Designer
 
 
 def _normalize_phone(value: str) -> str:
@@ -95,7 +114,7 @@ def _customer_resume_route_for_client(*, client: Client) -> str:
     return "customer_menu"
 
 
-def _resolve_active_shop_and_designer(*, request: HttpRequest) -> tuple[AdminAccount | None, Designer | None]:
+def _resolve_active_shop_and_designer(*, request: HttpRequest) -> tuple["AdminAccount | None", Designer | None]:
     designer = get_session_designer(request=request)
     admin = get_session_admin(request=request)
     if designer is not None:
@@ -126,7 +145,7 @@ def _resolve_client_assignment_defaults(*, request: HttpRequest) -> dict:
     if shop is None:
         return defaults
 
-    active_designers = list(shop.designers.filter(is_active=True).order_by("id")[:2])
+    active_designers = get_designers_for_admin(admin=shop)[:2]
     if not active_designers:
         defaults["assigned_at"] = timezone.now()
         defaults["assignment_source"] = "auto_shop_only"
@@ -187,9 +206,15 @@ def client_login_page(request):
         }
         defaults.update(_resolve_client_assignment_defaults(request=request))
 
-        client, _ = Client.objects.update_or_create(
+        client = upsert_client_record(
             phone=phone,
-            defaults=defaults,
+            name=defaults["name"],
+            gender=defaults.get("gender"),
+            age_input=defaults.get("age_input"),
+            birth_year_estimate=defaults.get("birth_year_estimate"),
+            shop=defaults.get("shop"),
+            designer=defaults.get("designer"),
+            assignment_source=defaults.get("assignment_source"),
         )
         set_customer_session(request=request, client=client)
         return redirect("customer_menu")
@@ -365,7 +390,9 @@ def admin_signup_page(request):
                 status=400,
             )
 
-        admin = AdminAccount.objects.filter(id=result["admin_id"], is_active=True).first()
+        admin = get_admin_by_legacy_id(legacy_admin_id=result.get("legacy_admin_id")) or get_admin_by_identifier(
+            identifier=result.get("admin_id")
+        )
         if admin is not None:
             clear_customer_session(request=request)
             clear_designer_session(request=request)
@@ -410,7 +437,7 @@ def designer_signup_page(request):
                 {"form_error": "디자이너 연락처는 필수 정보입니다.", "form_values": form_values},
                 status=400,
             )
-        if admin.designers.filter(phone=phone, is_active=True).exists():
+        if any(existing.phone == phone for existing in get_designers_for_admin(admin=admin)):
             return render(
                 request,
                 "admin/designer_signup.html",
@@ -432,8 +459,8 @@ def designer_signup_page(request):
                 status=400,
             )
 
-        Designer.objects.create(
-            shop=admin,
+        designer = create_designer_record(
+            admin=admin,
             name=name,
             phone=phone,
             pin_hash=make_password(pin),
@@ -452,7 +479,7 @@ def designer_management_page(request):
     if admin is None or get_session_designer(request=request) is not None:
         return redirect("partner_index")
 
-    designers = list(admin.designers.filter(is_active=True).order_by("id"))
+    designers = get_designers_for_admin(admin=admin)
     return render(
         request,
         "admin/designer_management.html",
@@ -475,20 +502,19 @@ def designer_delete_page(request):
 
     if request.method == "POST":
         designer_id = (request.POST.get("designer_id") or "").strip()
-        designer = Designer.objects.filter(id=designer_id, shop=admin, is_active=True).first()
+        designer = get_designer_for_admin(admin=admin, designer_id=designer_id)
         if designer is None:
             return render(
                 request,
                 "admin/designer_delete.html",
                 {
                     "active_shop": admin,
-                    "designers": list(admin.designers.filter(is_active=True).order_by("id")),
+                    "designers": get_designers_for_admin(admin=admin),
                     "form_error": "삭제할 디자이너를 찾을 수 없습니다.",
                 },
                 status=400,
             )
-        designer.is_active = False
-        designer.save(update_fields=["is_active"])
+        update_designer_active_state(designer=designer, is_active=False)
         return redirect(f"{reverse('partner_designer_management')}?notice=designer_deleted")
 
     return render(
@@ -496,7 +522,7 @@ def designer_delete_page(request):
         "admin/designer_delete.html",
         {
             "active_shop": admin,
-            "designers": list(admin.designers.filter(is_active=True).order_by("id")),
+            "designers": get_designers_for_admin(admin=admin),
             "popup_message": _popup_message_from_notice(request.GET.get("notice")),
         },
     )
@@ -569,7 +595,7 @@ def partner_verify(request):
     pin = (request.POST.get("pin") or "").strip()
 
     if phone and password:
-        admin = AdminAccount.objects.filter(phone=phone, is_active=True).first()
+        admin = get_admin_by_phone(phone=phone)
         if not admin or not check_password(password, admin.password_hash):
             return JsonResponse(
                 {"status": "error", "message": "연락처 또는 비밀번호를 다시 확인해 주세요."},
@@ -587,6 +613,7 @@ def partner_verify(request):
                 "session_type": "admin",
                 "next_step": "designer_select",
                 "shop_id": admin.id,
+                "legacy_shop_id": get_legacy_admin_id(admin=admin),
                 "store_name": admin.store_name,
             }
         )
@@ -616,11 +643,7 @@ def partner_verify(request):
                 status=400,
             )
 
-        designer = (
-            Designer.objects.select_related("shop")
-            .filter(id=designer_id, shop=admin, is_active=True)
-            .first()
-        )
+        designer = get_designer_for_admin(admin=admin, designer_id=designer_id)
         if designer is None:
             return JsonResponse(
                 {"status": "error", "message": "선택한 디자이너 정보를 찾을 수 없습니다."},
@@ -643,6 +666,8 @@ def partner_verify(request):
                 "session_type": "designer",
                 "shop_id": designer.shop_id,
                 "designer_id": designer.id,
+                "legacy_shop_id": get_legacy_admin_id(admin=designer.shop),
+                "legacy_designer_id": get_legacy_designer_id(designer=designer),
             }
         )
 
@@ -677,11 +702,12 @@ def partner_designer_list(request):
     designers = [
         {
             "id": designer.id,
+            "legacy_id": get_legacy_designer_id(designer=designer),
             "name": designer.name,
             "phone": designer.phone,
             "profile_image": None,
         }
-        for designer in admin.designers.filter(is_active=True).order_by("id")
+        for designer in get_designers_for_admin(admin=admin)
     ]
     return JsonResponse(designers, safe=False)
 

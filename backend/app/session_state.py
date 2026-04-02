@@ -1,40 +1,76 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.http import HttpRequest
 
-from app.models_django import AdminAccount, Client, Designer
+from app.services.model_team_bridge import (
+    get_admin_by_identifier,
+    get_admin_by_legacy_id,
+    get_client_by_identifier,
+    get_client_by_legacy_id,
+    get_designer_by_identifier,
+    get_designer_by_legacy_id,
+    get_legacy_admin_id,
+    get_legacy_client_id,
+    get_legacy_designer_id,
+)
+
+if TYPE_CHECKING:
+    from app.models_django import AdminAccount, Client, Designer
 
 
 CUSTOMER_ID_SESSION_KEY = "customer_id"
+CUSTOMER_LEGACY_ID_SESSION_KEY = "customer_legacy_id"
 CUSTOMER_NAME_SESSION_KEY = "customer_name"
 ADMIN_ID_SESSION_KEY = "admin_id"
+ADMIN_LEGACY_ID_SESSION_KEY = "admin_legacy_id"
 ADMIN_NAME_SESSION_KEY = "admin_name"
 DESIGNER_ID_SESSION_KEY = "designer_id"
+DESIGNER_LEGACY_ID_SESSION_KEY = "designer_legacy_id"
 DESIGNER_NAME_SESSION_KEY = "designer_name"
 OWNER_DASHBOARD_ALLOWED_SESSION_KEY = "owner_dashboard_allowed"
 
 
 def set_customer_session(*, request: HttpRequest, client: Client) -> None:
     request.session[CUSTOMER_ID_SESSION_KEY] = client.id
+    request.session[CUSTOMER_LEGACY_ID_SESSION_KEY] = get_legacy_client_id(client=client)
     request.session[CUSTOMER_NAME_SESSION_KEY] = client.name
     request.session.modified = True
 
 
 def clear_customer_session(*, request: HttpRequest) -> None:
     request.session.pop(CUSTOMER_ID_SESSION_KEY, None)
+    request.session.pop(CUSTOMER_LEGACY_ID_SESSION_KEY, None)
     request.session.pop(CUSTOMER_NAME_SESSION_KEY, None)
     request.session.modified = True
 
 
 def get_session_customer(*, request: HttpRequest) -> Client | None:
+    legacy_client_id = request.session.get(CUSTOMER_LEGACY_ID_SESSION_KEY)
+    if legacy_client_id:
+        client = get_client_by_legacy_id(legacy_client_id=legacy_client_id)
+        if client is not None:
+            request.session[CUSTOMER_ID_SESSION_KEY] = client.id
+            request.session[CUSTOMER_LEGACY_ID_SESSION_KEY] = get_legacy_client_id(client=client)
+            request.session[CUSTOMER_NAME_SESSION_KEY] = client.name
+            request.session.modified = True
+            return client
+
     client_id = request.session.get(CUSTOMER_ID_SESSION_KEY)
-    if not client_id:
-        return None
-    return Client.objects.filter(id=client_id).first()
+    if client_id:
+        client = get_client_by_identifier(identifier=client_id)
+        if client is not None:
+            request.session[CUSTOMER_LEGACY_ID_SESSION_KEY] = get_legacy_client_id(client=client)
+            request.session[CUSTOMER_NAME_SESSION_KEY] = client.name
+            request.session.modified = True
+            return client
+    return None
 
 
 def set_admin_session(*, request: HttpRequest, admin: AdminAccount) -> None:
     request.session[ADMIN_ID_SESSION_KEY] = admin.id
+    request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
     request.session[ADMIN_NAME_SESSION_KEY] = admin.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
@@ -42,20 +78,37 @@ def set_admin_session(*, request: HttpRequest, admin: AdminAccount) -> None:
 
 def clear_admin_session(*, request: HttpRequest) -> None:
     request.session.pop(ADMIN_ID_SESSION_KEY, None)
+    request.session.pop(ADMIN_LEGACY_ID_SESSION_KEY, None)
     request.session.pop(ADMIN_NAME_SESSION_KEY, None)
     request.session.pop(OWNER_DASHBOARD_ALLOWED_SESSION_KEY, None)
     request.session.modified = True
 
 
 def get_session_admin(*, request: HttpRequest) -> AdminAccount | None:
+    legacy_admin_id = request.session.get(ADMIN_LEGACY_ID_SESSION_KEY)
+    if legacy_admin_id:
+        admin = get_admin_by_legacy_id(legacy_admin_id=legacy_admin_id)
+        if admin is not None:
+            request.session[ADMIN_ID_SESSION_KEY] = admin.id
+            request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
+            request.session[ADMIN_NAME_SESSION_KEY] = admin.name
+            request.session.modified = True
+            return admin
+
     admin_id = request.session.get(ADMIN_ID_SESSION_KEY)
-    if not admin_id:
-        return None
-    return AdminAccount.objects.filter(id=admin_id, is_active=True).first()
+    if admin_id:
+        admin = get_admin_by_identifier(identifier=admin_id)
+        if admin is not None:
+            request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
+            request.session[ADMIN_NAME_SESSION_KEY] = admin.name
+            request.session.modified = True
+            return admin
+    return None
 
 
 def set_designer_session(*, request: HttpRequest, designer: Designer) -> None:
     request.session[DESIGNER_ID_SESSION_KEY] = designer.id
+    request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
     request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
@@ -63,16 +116,32 @@ def set_designer_session(*, request: HttpRequest, designer: Designer) -> None:
 
 def clear_designer_session(*, request: HttpRequest) -> None:
     request.session.pop(DESIGNER_ID_SESSION_KEY, None)
+    request.session.pop(DESIGNER_LEGACY_ID_SESSION_KEY, None)
     request.session.pop(DESIGNER_NAME_SESSION_KEY, None)
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
 
 
 def get_session_designer(*, request: HttpRequest) -> Designer | None:
+    legacy_designer_id = request.session.get(DESIGNER_LEGACY_ID_SESSION_KEY)
+    if legacy_designer_id:
+        designer = get_designer_by_legacy_id(legacy_designer_id=legacy_designer_id)
+        if designer is not None:
+            request.session[DESIGNER_ID_SESSION_KEY] = designer.id
+            request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
+            request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
+            request.session.modified = True
+            return designer
+
     designer_id = request.session.get(DESIGNER_ID_SESSION_KEY)
-    if not designer_id:
-        return None
-    return Designer.objects.select_related("shop").filter(id=designer_id, is_active=True).first()
+    if designer_id:
+        designer = get_designer_by_identifier(identifier=designer_id)
+        if designer is not None:
+            request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
+            request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
+            request.session.modified = True
+            return designer
+    return None
 
 
 def allow_owner_dashboard(*, request: HttpRequest) -> None:

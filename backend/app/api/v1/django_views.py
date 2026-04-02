@@ -3,7 +3,7 @@ import threading
 import logging
 
 from django.conf import settings
-from django.shortcuts import get_object_or_404
+from django.http import Http404
 from PIL import Image, ImageOps
 from rest_framework import parsers, status
 from rest_framework.response import Response
@@ -27,6 +27,7 @@ from app.api.v1.services_django import (
     confirm_style_selection,
     get_current_recommendations,
     get_former_recommendations,
+    get_latest_capture,
     get_trend_recommendations,
     regenerate_recommendation_simulation,
     retry_current_recommendations,
@@ -34,10 +35,17 @@ from app.api.v1.services_django import (
     serialize_capture_status,
     upsert_survey,
 )
-from app.models_django import CaptureRecord, Client
 from app.services.age_profile import build_client_age_profile
 from app.services.capture_validation import sanitize_original_upload, validate_capture_image
 from app.services.face_processing import build_deidentified_capture, extract_landmark_snapshot
+from app.services.model_team_bridge import (
+    create_legacy_capture_upload_record,
+    get_client_by_identifier,
+    get_client_by_phone,
+    get_legacy_capture_by_identifier,
+    get_legacy_client_id,
+    upsert_client_record,
+)
 from app.services.storage_service import build_storage_snapshot, store_capture_assets
 
 
@@ -60,6 +68,13 @@ def _query_value(request, *keys: str):
     return None
 
 
+def _get_client_or_404(identifier):
+    client = get_client_by_identifier(identifier=identifier)
+    if client is None:
+        raise Http404("Client not found.")
+    return client
+
+
 class LoginView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Log in client",
@@ -76,7 +91,7 @@ class LoginView(CompatEnvelopeAPIView):
         if not phone:
             return detail_response("Phone number is required.", status_code=status.HTTP_400_BAD_REQUEST)
 
-        client = Client.objects.filter(phone=phone).first()
+        client = get_client_by_phone(phone=phone)
         if not client:
             return detail_response("Client not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -84,6 +99,7 @@ class LoginView(CompatEnvelopeAPIView):
         return Response(
             {
                 "client_id": client.id,
+                "legacy_client_id": get_legacy_client_id(client=client),
                 "age": age_profile.get("current_age"),
                 "age_decade": age_profile.get("age_decade"),
                 "age_segment": age_profile.get("age_segment"),
@@ -110,7 +126,7 @@ class ClientCheckView(CompatEnvelopeAPIView):
     @extend_schema(summary="Check existing client", request=ClientCheckSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
-        client = Client.objects.filter(phone=phone).first()
+        client = get_client_by_phone(phone=phone)
         if not client:
             return Response({"is_existing": False})
 
@@ -121,6 +137,7 @@ class ClientCheckView(CompatEnvelopeAPIView):
                 "name": client.name,
                 "gender": client.gender,
                 "client_id": client.id,
+                "legacy_client_id": get_legacy_client_id(client=client),
                 "age": age_profile.get("current_age"),
                 "age_decade": age_profile.get("age_decade"),
                 "age_segment": age_profile.get("age_segment"),
@@ -133,7 +150,7 @@ class RegisterView(CompatEnvelopeAPIView):
     @extend_schema(summary="Register new client", request=ClientRegisterSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
-        if Client.objects.filter(phone=phone).exists():
+        if get_client_by_phone(phone=phone) is not None:
             return detail_response(
                 "This phone number is already registered.",
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -141,13 +158,20 @@ class RegisterView(CompatEnvelopeAPIView):
 
         serializer = ClientRegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        client = serializer.save(phone=phone)
+        client = upsert_client_record(
+            phone=phone,
+            name=serializer.validated_data["name"],
+            gender=serializer.validated_data.get("gender"),
+            age_input=serializer.validated_data.get("age_input"),
+            birth_year_estimate=serializer.validated_data.get("birth_year_estimate"),
+        )
 
         age_profile = build_client_age_profile(client) or {}
         return Response(
             {
                 "status": "success",
                 "client_id": client.id,
+                "legacy_client_id": get_legacy_client_id(client=client),
                 "age": age_profile.get("current_age"),
                 "age_decade": age_profile.get("age_decade"),
                 "age_segment": age_profile.get("age_segment"),
@@ -162,7 +186,7 @@ class SurveyView(CompatEnvelopeAPIView):
     @extend_schema(summary="Submit client survey", request=SurveySerializer, responses={200: SurveySerializer})
     def post(self, request):
         client_id = _request_value(request, "client", "client_id", "customer_id", "customer")
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         survey = upsert_survey(client, request.data)
         logger.info("[survey_saved] client_id=%s survey_id=%s", client.id, survey.id)
         return Response(SurveySerializer(survey).data)
@@ -177,7 +201,9 @@ class CaptureUploadView(CompatEnvelopeAPIView):
             "multipart/form-data": {
                 "type": "object",
                 "properties": {
-                    "client_id": {"type": "integer"},
+                    "client_id": {"type": "string"},
+                    "customer_id": {"type": "string"},
+                    "customer": {"type": "string"},
                     "file": {"type": "string", "format": "binary"},
                 },
                 "required": ["client_id", "file"],
@@ -187,7 +213,7 @@ class CaptureUploadView(CompatEnvelopeAPIView):
     )
     def post(self, request):
         client_id = _request_value(request, "client_id", "customer_id", "customer")
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         file_obj = request.FILES.get("file")
         if not file_obj:
             return detail_response("Image file is required.", status_code=status.HTTP_400_BAD_REQUEST)
@@ -238,7 +264,7 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                 "reason": "capture_images_not_persisted",
             }
 
-        record = CaptureRecord.objects.create(
+        record = create_legacy_capture_upload_record(
             client=client,
             original_path=original_path,
             processed_path=processed_path,
@@ -306,11 +332,29 @@ class CaptureUploadView(CompatEnvelopeAPIView):
 class CaptureStatusView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get capture processing status",
-        parameters=[OpenApiParameter("record_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
+        parameters=[
+            OpenApiParameter("record_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("client_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("customer_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("customer", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+        ],
         responses={200: OpenApiTypes.OBJECT},
     )
     def get(self, request):
-        record = get_object_or_404(CaptureRecord, id=request.query_params.get("record_id"))
+        record = None
+        record_id = request.query_params.get("record_id")
+        if record_id not in (None, ""):
+            record = get_legacy_capture_by_identifier(identifier=record_id)
+
+        if record is None:
+            client_id = _query_value(request, "client_id", "customer_id", "customer")
+            if client_id in (None, ""):
+                return detail_response("record_id or client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
+            client = _get_client_or_404(client_id)
+            record = get_latest_capture(client)
+            if record is None:
+                raise Http404("Capture record not found.")
+
         payload = serialize_capture_status(record)
         logger.info(
             "[capture_status] record_id=%s status=%s storage_mode=%s",
@@ -324,12 +368,12 @@ class CaptureStatusView(CompatEnvelopeAPIView):
 class FormerRecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get former recommendation history",
-        parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
+        parameters=[OpenApiParameter("client_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True)],
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
         client_id = _query_value(request, "client_id", "customer_id", "customer")
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         payload = get_former_recommendations(client)
         if request.query_params.get("customer_id") or request.query_params.get("customer"):
             return Response(payload.get("items", []))
@@ -339,12 +383,12 @@ class FormerRecommendationView(CompatEnvelopeAPIView):
 class RecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get current recommendations",
-        parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
+        parameters=[OpenApiParameter("client_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True)],
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
         client_id = _query_value(request, "client_id", "customer_id", "customer")
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         payload = get_current_recommendations(client)
         logger.info(
             "[current_recommendations] client_id=%s item_count=%s stage=%s",
@@ -362,14 +406,14 @@ class TrendView(CompatEnvelopeAPIView):
         summary="Get trend-based style recommendations",
         parameters=[
             OpenApiParameter("days", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("client_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
         ],
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
         days = int(request.query_params.get("days", 30))
         client_id = _query_value(request, "client_id", "customer_id", "customer")
-        client = get_object_or_404(Client, id=client_id) if client_id else None
+        client = _get_client_or_404(client_id) if client_id else None
         payload = get_trend_recommendations(days=days, client=client)
         logger.info(
             "[trend_recommendations] client_id=%s days=%s item_count=%s scope=%s",
@@ -409,7 +453,7 @@ class RetryRecommendationView(CompatEnvelopeAPIView):
         client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id") or serializer.validated_data.get("customer")
         if not client_id:
             return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         try:
             payload = retry_current_recommendations(client)
         except ValueError as exc:
@@ -424,8 +468,8 @@ class SelectionView(CompatEnvelopeAPIView):
             "application/json": {
                 "type": "object",
                 "properties": {
-                    "client_id": {"type": "integer"},
-                    "customer_id": {"type": "integer"},
+                    "client_id": {"type": "string"},
+                    "customer_id": {"type": "string"},
                     "style_id": {"type": "integer"},
                 },
                 "required": ["style_id"],
@@ -441,7 +485,7 @@ class SelectionView(CompatEnvelopeAPIView):
                 "client_id와 style_id를 모두 전달해 주세요.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         return Response(
             {
                 "status": "selected",
@@ -459,10 +503,10 @@ class ConfirmView(CompatEnvelopeAPIView):
             "application/json": {
                 "type": "object",
                 "properties": {
-                    "client_id": {"type": "integer"},
+                    "client_id": {"type": "string"},
                     "recommendation_id": {"type": "integer"},
                     "style_id": {"type": "integer"},
-                    "admin_id": {"type": "integer"},
+                    "admin_id": {"type": "string"},
                     "source": {"type": "string", "example": "current_recommendations"},
                     "direct_consultation": {"type": "boolean", "default": False},
                 },
@@ -473,7 +517,7 @@ class ConfirmView(CompatEnvelopeAPIView):
     )
     def post(self, request):
         client_id = _request_value(request, "client_id", "customer_id", "customer")
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         try:
             payload = confirm_style_selection(
                 client=client,
@@ -495,7 +539,7 @@ class CancelView(CompatEnvelopeAPIView):
             "application/json": {
                 "type": "object",
                 "properties": {
-                    "client_id": {"type": "integer"},
+                    "client_id": {"type": "string"},
                     "recommendation_id": {"type": "integer"},
                     "source": {"type": "string", "example": "current_recommendations"},
                 },
@@ -506,7 +550,7 @@ class CancelView(CompatEnvelopeAPIView):
     )
     def post(self, request):
         client_id = _request_value(request, "client_id", "customer_id", "customer")
-        client = get_object_or_404(Client, id=client_id)
+        client = _get_client_or_404(client_id)
         try:
             payload = cancel_style_selection(
                 client=client,

@@ -116,7 +116,7 @@ def _dedupe_styles_by_name(styles: Sequence[dict[str, Any]]) -> tuple[list[dict[
 
 
 def sync_seed_styles_to_db(styles: list[dict[str, Any]] | None = None) -> dict[str, int]:
-    from app.models_django import Style
+    from app.models_model_team import LegacyHairstyle
 
     source_styles = styles or load_hairstyles()
     normalized_styles, duplicate_count, skipped_count = _dedupe_styles_by_name(source_styles)
@@ -129,19 +129,44 @@ def sync_seed_styles_to_db(styles: list[dict[str, Any]] | None = None) -> dict[s
             "description": str(style.get("description") or "").strip(),
         }
         style_name = _normalized_style_name(style)
-        record = Style.objects.filter(name=style_name).order_by("id").first()
+        record = (
+            LegacyHairstyle.objects.filter(name=style_name)
+            .order_by("-backend_style_id", "-hairstyle_id")
+            .first()
+        )
         if record is None:
-            record = Style.objects.create(name=style_name, **defaults)
+            next_id = (
+                LegacyHairstyle.objects.order_by("-hairstyle_id")
+                .values_list("hairstyle_id", flat=True)
+                .first()
+                or 0
+            ) + 1
+            record = LegacyHairstyle.objects.create(
+                hairstyle_id=next_id,
+                chroma_id=str(style.get("style_id") or next_id),
+                style_name=style_name,
+                image_url=str(style.get("image_url") or ""),
+                created_at="",
+                backend_style_id=next_id,
+                name=style_name,
+                **defaults,
+            )
             created = True
         else:
             created = False
             changed = False
-            for field, value in defaults.items():
+            normalized_defaults = {
+                **defaults,
+                "style_name": style_name,
+                "name": style_name,
+                "image_url": str(style.get("image_url") or record.image_url or ""),
+            }
+            for field, value in normalized_defaults.items():
                 if getattr(record, field) != value:
                     setattr(record, field, value)
                     changed = True
             if changed:
-                record.save(update_fields=list(defaults.keys()))
+                record.save(update_fields=list(normalized_defaults.keys()))
 
         if created:
             created_count += 1

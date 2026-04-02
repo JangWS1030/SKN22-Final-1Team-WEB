@@ -3,19 +3,57 @@ import logging
 import os
 import re
 from collections import Counter
+from typing import TYPE_CHECKING
 from urllib import error, request
 
 from django.contrib.auth.hashers import check_password, make_password
+from django.db import IntegrityError, connection
 from django.db.models import Count, Q
 from django.utils import timezone
 
 from app.api.v1.admin_auth import issue_admin_token_pair
 from app.api.v1.recommendation_logic import STYLE_CATALOG
 from app.api.v1.services_django import ensure_catalog_styles, get_latest_analysis, get_latest_survey, serialize_recommendation_row
-from app.models_django import AdminAccount, CaptureRecord, ConsultationRequest, Client, ClientSessionNote, Designer, FormerRecommendation, Style, StyleSelection
+from app.models_model_team import LegacyClient, LegacyClientResult
 from app.services.age_profile import build_client_age_profile
 from app.services.ai_facade import get_ai_health
+from app.services.model_team_bridge import (
+    admin_exists_by_business_number,
+    admin_exists_by_phone,
+    create_admin_record,
+    get_admin_by_identifier,
+    get_client_by_identifier,
+    get_admin_by_phone,
+    get_designer_by_identifier,
+    get_designer_for_admin,
+    get_legacy_active_consultation_items,
+    get_legacy_admin_id,
+    get_legacy_activity_client_map_by_day,
+    get_legacy_analysis_history,
+    get_legacy_capture_history,
+    get_legacy_client_id,
+    get_legacy_confirmed_selection_items,
+    get_legacy_designer_id,
+    get_legacy_former_recommendation_items,
+    has_legacy_analysis_source,
+    has_legacy_result_source,
+    get_scoped_client_ids,
+    get_style_record,
+    sync_model_team_runtime_state,
+    upsert_client_record,
+)
 from app.services.storage_service import build_storage_snapshot, resolve_storage_reference
+
+if TYPE_CHECKING:
+    from app.models_django import (
+        AdminAccount,
+        CaptureRecord,
+        Client,
+        ConsultationRequest,
+        Designer,
+        FormerRecommendation,
+        StyleSelection,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -84,44 +122,77 @@ def _serialize_survey(survey) -> dict | None:
     }
 
 
+def _record_value(record, key: str, default=None):
+    if isinstance(record, dict):
+        return record.get(key, default)
+    return getattr(record, key, default)
+
+
+def _jsonish(value, default):
+    if value in (None, ""):
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default
+
+
 def _serialize_analysis(analysis) -> dict | None:
     if not analysis:
         return None
+    image_url = (
+        _record_value(analysis, "image_url")
+        or _record_value(analysis, "processed_path")
+        or _record_value(analysis, "original_image_url")
+    )
+    landmark_snapshot = (
+        _record_value(analysis, "landmark_snapshot")
+        or _jsonish(_record_value(analysis, "analysis_landmark_snapshot"), {})
+        or _jsonish(_record_value(analysis, "landmark_data"), {})
+    )
     return {
-        "face_shape": analysis.face_shape,
-        "golden_ratio_score": analysis.golden_ratio_score,
-        "image_url": resolve_storage_reference(analysis.image_url),
-        "landmark_snapshot": analysis.landmark_snapshot,
-        "created_at": analysis.created_at,
+        "face_shape": _record_value(analysis, "face_shape") or _record_value(analysis, "face_type"),
+        "golden_ratio_score": _record_value(analysis, "golden_ratio_score"),
+        "image_url": resolve_storage_reference(image_url),
+        "landmark_snapshot": landmark_snapshot,
+        "created_at": _record_value(analysis, "created_at"),
     }
 
 
-def _serialize_capture(record: CaptureRecord) -> dict:
-    privacy_snapshot = record.privacy_snapshot or {}
+def _serialize_capture(record) -> dict:
+    privacy_snapshot = _record_value(record, "privacy_snapshot", {}) or {}
+    client = _record_value(record, "client")
+    original_path = _record_value(record, "original_path")
+    processed_path = _record_value(record, "processed_path")
+    deidentified_path = _record_value(record, "deidentified_path")
     return {
-        "record_id": record.id,
-        "status": record.status,
-        "face_count": record.face_count,
-        "landmark_snapshot": record.landmark_snapshot,
-        "deidentified_image_url": resolve_storage_reference(record.deidentified_path),
+        "record_id": _record_value(record, "id"),
+        "client_id": _record_value(record, "client_id"),
+        "legacy_client_id": _record_value(record, "legacy_client_id") or get_legacy_client_id(client=client),
+        "status": _record_value(record, "status"),
+        "face_count": _record_value(record, "face_count"),
+        "landmark_snapshot": _record_value(record, "landmark_snapshot"),
+        "deidentified_image_url": resolve_storage_reference(deidentified_path),
         "privacy_snapshot": privacy_snapshot,
         "image_storage_policy": privacy_snapshot.get("storage_policy", "asset_store"),
-        "error_note": record.error_note,
-        "original_image_url": resolve_storage_reference(record.original_path),
-        "processed_image_url": resolve_storage_reference(record.processed_path),
+        "error_note": _record_value(record, "error_note"),
+        "original_image_url": resolve_storage_reference(original_path),
+        "processed_image_url": resolve_storage_reference(processed_path),
         "storage_snapshot": build_storage_snapshot(
-            original_path=record.original_path,
-            processed_path=record.processed_path,
-            deidentified_path=record.deidentified_path,
+            original_path=original_path,
+            processed_path=processed_path,
+            deidentified_path=deidentified_path,
         ),
-        "created_at": record.created_at,
-        "updated_at": record.updated_at,
+        "created_at": _record_value(record, "created_at"),
+        "updated_at": _record_value(record, "updated_at"),
     }
 
 
 def _style_snapshot(style_id: int) -> dict:
     styles_by_id = ensure_catalog_styles()
-    style = styles_by_id.get(style_id) or Style.objects.filter(id=style_id).first()
+    style = styles_by_id.get(style_id) or get_style_record(style_id=style_id)
     if not style:
         return {
             "style_id": style_id,
@@ -132,24 +203,92 @@ def _style_snapshot(style_id: int) -> dict:
         }
 
     profile = next((item for item in STYLE_CATALOG if item.style_id == style_id), None)
-    keywords = list(profile.keywords) if profile else ([style.vibe] if style.vibe else [])
+    style_name = getattr(style, "name", None) or getattr(style, "style_name", None) or f"Style {style_id}"
+    style_image_url = getattr(style, "image_url", None)
+    style_description = getattr(style, "description", None) or ""
+    style_vibe = getattr(style, "vibe", None)
+    normalized_style_id = (
+        getattr(style, "backend_style_id", None)
+        or getattr(style, "hairstyle_id", None)
+        or getattr(style, "id", None)
+        or style_id
+    )
+    keywords = list(profile.keywords) if profile else ([style_vibe] if style_vibe else [])
     return {
-        "style_id": style.id,
-        "style_name": style.name,
-        "image_url": resolve_storage_reference(style.image_url),
-        "description": style.description or "",
+        "style_id": normalized_style_id,
+        "style_name": style_name,
+        "image_url": resolve_storage_reference(style_image_url),
+        "description": style_description,
         "keywords": keywords,
     }
 
 
-def _serialize_recommendation(row: FormerRecommendation) -> dict:
-    return serialize_recommendation_row(row)
+def _serialize_recommendation(row: "FormerRecommendation | dict") -> dict:
+    if isinstance(row, dict):
+        reasoning_snapshot = row.get("reasoning_snapshot") or {}
+        return {
+            "recommendation_id": row.get("recommendation_id") or row.get("id"),
+            "client_id": row.get("client_id"),
+            "legacy_client_id": row.get("legacy_client_id"),
+            "batch_id": row.get("batch_id"),
+            "source": row.get("source"),
+            "style_id": row.get("style_id"),
+            "style_name": row.get("style_name"),
+            "style_description": row.get("style_description") or "",
+            "keywords": list(row.get("keywords") or []),
+            "sample_image_url": row.get("sample_image_url"),
+            "simulation_image_url": row.get("simulation_image_url"),
+            "synthetic_image_url": row.get("synthetic_image_url") or row.get("simulation_image_url"),
+            "llm_explanation": row.get("llm_explanation") or "",
+            "reasoning": row.get("reasoning") or reasoning_snapshot.get("summary") or row.get("llm_explanation") or "",
+            "reasoning_snapshot": reasoning_snapshot,
+            "image_policy": row.get("image_policy") or "legacy_asset_store",
+            "can_regenerate_simulation": bool(row.get("can_regenerate_simulation")),
+            "regeneration_remaining_count": int(row.get("regeneration_remaining_count") or 0),
+            "regeneration_policy": row.get("regeneration_policy"),
+            "match_score": row.get("match_score"),
+            "rank": row.get("rank"),
+            "is_chosen": bool(row.get("is_chosen")),
+            "created_at": row.get("created_at"),
+        }
+    payload = serialize_recommendation_row(row)
+    payload["client_id"] = row.client_id
+    payload["legacy_client_id"] = get_legacy_client_id(client=row.client)
+    return payload
 
 
-def _serialize_style_selection(selection: StyleSelection) -> dict:
+def _serialize_style_selection(selection: "StyleSelection | dict") -> dict:
+    if isinstance(selection, dict):
+        style_id = int(selection.get("style_id") or 0)
+        style_snapshot = _style_snapshot(style_id)
+        return {
+            "selection_id": (
+                selection.get("selection_id")
+                or selection.get("backend_selection_id")
+                or selection.get("result_id")
+                or selection.get("selected_recommendation_id")
+            ),
+            "client_id": selection.get("client_id"),
+            "legacy_client_id": selection.get("legacy_client_id"),
+            "style_id": style_id,
+            "style_name": selection.get("style_name") or style_snapshot["style_name"],
+            "image_url": selection.get("image_url") or style_snapshot["image_url"],
+            "description": selection.get("style_description") or style_snapshot["description"],
+            "source": selection.get("source"),
+            "match_score": selection.get("match_score") or selection.get("selection_count"),
+            "is_sent_to_admin": bool(
+                selection.get("is_sent_to_admin")
+                or selection.get("is_active")
+                or selection.get("is_confirmed")
+            ),
+            "created_at": selection.get("created_at") or selection.get("last_activity_at"),
+        }
+
     style_snapshot = _style_snapshot(selection.style_id)
     return {
         "selection_id": selection.id,
+        "client_id": selection.client_id,
+        "legacy_client_id": get_legacy_client_id(client=selection.client),
         "style_id": selection.style_id,
         "style_name": style_snapshot["style_name"],
         "image_url": style_snapshot["image_url"],
@@ -161,7 +300,90 @@ def _serialize_style_selection(selection: StyleSelection) -> dict:
     }
 
 
-def _serialize_admin_profile(admin: AdminAccount) -> dict:
+def _serialize_consultation_like(row: "ConsultationRequest | dict") -> dict:
+    if isinstance(row, dict):
+        return {
+            "consultation_id": row.get("consultation_id") or row.get("id"),
+            "client_id": row.get("client_id"),
+            "legacy_client_id": row.get("legacy_client_id"),
+            "client_name": row.get("client_name"),
+            "phone": row.get("phone"),
+            "status": row.get("status"),
+            "has_unread_consultation": bool(row.get("has_unread_consultation")),
+            "designer_id": row.get("designer_id"),
+            "legacy_designer_id": row.get("legacy_designer_id"),
+            "designer_name": row.get("designer_name"),
+            "selected_style_name": row.get("selected_style_name"),
+            "recommendation_count": row.get("recommendation_count"),
+            "created_at": row.get("created_at") or row.get("last_activity_at"),
+            "last_activity_at": row.get("last_activity_at") or row.get("created_at"),
+            "closed_at": row.get("closed_at"),
+            "is_active": bool(row.get("is_active")),
+            "is_read": not bool(row.get("has_unread_consultation")),
+            "source": row.get("source"),
+        }
+
+    recommendation_count = 1 if row.selected_recommendation else 0
+    created_at = row.created_at
+    return {
+        "consultation_id": row.id,
+        "client_id": row.client_id,
+        "legacy_client_id": get_legacy_client_id(client=row.client),
+        "client_name": row.client.name,
+        "phone": row.client.phone,
+        "status": row.status,
+        "has_unread_consultation": not row.is_read,
+        "designer_id": row.designer_id or row.client.designer_id,
+        "legacy_designer_id": (
+            get_legacy_designer_id(designer=row.designer)
+            if row.designer_id and row.designer
+            else (
+                get_legacy_designer_id(designer=row.client.designer)
+                if row.client.designer_id and row.client.designer
+                else None
+            )
+        ),
+        "designer_name": (
+            row.designer.name
+            if row.designer_id and row.designer
+            else (row.client.designer.name if row.client.designer_id and row.client.designer else None)
+        ),
+        "selected_style_name": row.selected_style.name if row.selected_style else None,
+        "recommendation_count": recommendation_count,
+        "created_at": created_at,
+        "last_activity_at": created_at,
+        "closed_at": row.closed_at,
+        "is_active": row.is_active,
+        "is_read": row.is_read,
+        "source": row.source,
+    }
+
+
+def _sync_legacy_consultation_status(
+    *,
+    client: "Client",
+    consultation_id: int,
+    status_value: str,
+    is_active: bool,
+    is_read: bool,
+    closed_at=None,
+) -> None:
+    legacy_client_id = get_legacy_client_id(client=client)
+    if not legacy_client_id:
+        return
+    LegacyClientResult.objects.filter(
+        client_id=legacy_client_id,
+    ).filter(
+        Q(backend_consultation_id=consultation_id) | Q(result_id=consultation_id)
+    ).update(
+        status=status_value,
+        is_active=is_active,
+        is_read=is_read,
+        closed_at=closed_at,
+    )
+
+
+def _serialize_admin_profile(admin: "AdminAccount") -> dict:
     formatted_business_number = (
         _format_business_number(admin.business_number)
         if len(admin.business_number) == 10 and admin.business_number.isdigit()
@@ -169,6 +391,7 @@ def _serialize_admin_profile(admin: AdminAccount) -> dict:
     )
     return {
         "admin_id": admin.id,
+        "legacy_admin_id": get_legacy_admin_id(admin=admin),
         "name": admin.name,
         "store_name": admin.store_name,
         "role": admin.role,
@@ -181,11 +404,12 @@ def _serialize_admin_profile(admin: AdminAccount) -> dict:
     }
 
 
-def _serialize_designer_profile(designer: Designer | None) -> dict | None:
+def _serialize_designer_profile(designer: "Designer | None") -> dict | None:
     if designer is None:
         return None
     return {
         "designer_id": designer.id,
+        "legacy_designer_id": get_legacy_designer_id(designer=designer),
         "name": designer.name,
         "shop_id": designer.shop_id,
         "shop_name": designer.shop.store_name,
@@ -195,7 +419,7 @@ def _serialize_designer_profile(designer: Designer | None) -> dict | None:
     }
 
 
-def _client_age_fields(client: Client) -> dict:
+def _client_age_fields(client: "Client") -> dict:
     profile = build_client_age_profile(client) or {}
     return {
         "age": profile.get("current_age"),
@@ -205,38 +429,34 @@ def _client_age_fields(client: Client) -> dict:
     }
 
 
-def _scoped_client_queryset(*, admin: AdminAccount | None = None, designer: Designer | None = None):
-    queryset = Client.objects.all()
+def _scoped_client_records(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None, query: str = "") -> list["Client"]:
     if designer is not None:
-        return queryset.filter(designer=designer).distinct()
+        rows = LegacyClient.objects.filter(backend_designer_ref_id=designer.id)
+    elif admin is not None:
+        rows = LegacyClient.objects.filter(backend_shop_ref_id=admin.id)
+    else:
+        rows = LegacyClient.objects.all()
 
-    if admin is None:
-        return queryset
+    if query:
+        rows = rows.filter(
+            Q(name__icontains=query)
+            | Q(client_name__icontains=query)
+            | Q(phone__icontains=query)
+        )
 
-    return queryset.filter(
-        Q(shop=admin)
-        | Q(designer__shop=admin)
-        | Q(consultations__admin=admin)
-        | Q(session_notes__admin=admin)
-    ).distinct()
-
-
-def _scoped_consultation_queryset(*, admin: AdminAccount | None = None, designer: Designer | None = None):
-    queryset = ConsultationRequest.objects.all()
-    if designer is not None:
-        return queryset.filter(Q(designer=designer) | Q(client__designer=designer)).distinct()
-
-    if admin is None:
-        return queryset
-
-    return queryset.filter(
-        Q(admin=admin)
-        | Q(client__shop=admin)
-        | Q(designer__shop=admin)
-    ).distinct()
+    records: list["Client"] = []
+    for row in rows.order_by("name", "client_name", "client_id"):
+        client = get_client_by_identifier(identifier=row.backend_client_id or row.client_id)
+        if client is not None:
+            records.append(client)
+    return records
 
 
-def get_admin_profile(*, admin: AdminAccount) -> dict:
+def _scoped_client_ids(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> set[int]:
+    return {client.id for client in _scoped_client_records(admin=admin, designer=designer)}
+
+
+def get_admin_profile(*, admin: "AdminAccount") -> dict:
     return {
         "status": "success",
         "admin": _serialize_admin_profile(admin),
@@ -273,14 +493,14 @@ def register_admin(*, payload: dict) -> dict:
         if not is_checked:
             raise ValueError(_required_field_message(label))
 
-    if AdminAccount.objects.filter(phone=phone).exists():
+    if admin_exists_by_phone(phone=phone):
         raise ValueError("이미 등록된 관리자 연락처입니다.")
     if not _is_valid_business_number(business_number):
         raise ValueError("유효하지 않은 사업자등록번호입니다.")
-    if AdminAccount.objects.filter(Q(business_number__in=_business_number_variants(business_number))).exists():
+    if admin_exists_by_business_number(business_numbers=_business_number_variants(business_number)):
         raise ValueError("이미 등록된 사업자등록번호입니다.")
 
-    admin = AdminAccount.objects.create(
+    admin = create_admin_record(
         name=payload["name"],
         store_name=payload["store_name"],
         role=payload.get("role", "owner"),
@@ -300,7 +520,7 @@ def register_admin(*, payload: dict) -> dict:
 
 def login_admin(*, phone: str, password: str) -> dict:
     phone = _normalize_phone(phone)
-    admin = AdminAccount.objects.filter(phone=phone, is_active=True).first()
+    admin = get_admin_by_phone(phone=phone)
     if not admin or not check_password(password, admin.password_hash):
         raise ValueError("관리자 계정 정보를 다시 확인해 주세요.")
     return {
@@ -310,363 +530,198 @@ def login_admin(*, phone: str, password: str) -> dict:
     }
 
 
-def _today_client_ids(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> set[int]:
+def _today_client_ids(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> set[int]:
     start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
-    clients = _scoped_client_queryset(admin=admin, designer=designer)
-    capture_ids = set(clients.filter(captures__created_at__gte=start).values_list("id", flat=True))
-    consult_ids = set(clients.filter(consultations__created_at__gte=start).values_list("id", flat=True))
-    return capture_ids | consult_ids
-
-
-def _latest_active_consultations(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> list[ConsultationRequest]:
-    rows = _scoped_consultation_queryset(admin=admin, designer=designer).filter(is_active=True).select_related("client", "selected_style", "selected_recommendation", "designer").order_by("-created_at")
-    seen: set[int] = set()
-    latest_rows: list[ConsultationRequest] = []
-    for row in rows:
-        if row.client_id in seen:
-            continue
-        seen.add(row.client_id)
-        latest_rows.append(row)
-    return latest_rows
-
-
-def get_admin_dashboard_summary(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
-    start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
-    styles_by_id = ensure_catalog_styles()
-    style_selection_queryset = StyleSelection.objects.filter(created_at__gte=start)
-    scoped_clients = _scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True)
-    style_selection_queryset = style_selection_queryset.filter(client_id__in=scoped_clients)
-    top_rows = (
-        style_selection_queryset
-        .values("style_id")
-        .annotate(selection_count=Count("id"))
-        .order_by("-selection_count", "style_id")[:5]
+    legacy_activity = get_legacy_activity_client_map_by_day(
+        start_date=start.date(),
+        days=1,
+        admin=admin,
+        designer=designer,
     )
-    top_styles = []
-    for row in top_rows:
-        style = styles_by_id.get(row["style_id"]) or Style.objects.filter(id=row["style_id"]).first()
-        top_styles.append(
-            {
-                "style_id": row["style_id"],
-                "style_name": style.name if style else f"Style {row['style_id']}",
-                "image_url": resolve_storage_reference(style.image_url) if style else None,
-                "selection_count": row["selection_count"],
-            }
-        )
-
-    active_consultations = _latest_active_consultations(admin=admin, designer=designer)
-    active_preview = [
-        {
-            "consultation_id": row.id,
-            "client_id": row.client_id,
-            "client_name": row.client.name,
-            "phone": row.client.phone,
-            "has_unread_consultation": not row.is_read,
-            "status": row.status,
-            "selected_style_name": row.selected_style.name if row.selected_style else None,
-            "created_at": row.created_at,
-        }
-        for row in active_consultations[:5]
-    ]
-    return {
-        "status": "ready",
-        "ai_engine": _ai_health(),
-        "today_metrics": {
-            "unique_visitors": len(_today_client_ids(admin=admin, designer=designer)),
-            "active_clients": len(active_consultations),
-            "pending_consultations": sum(1 for row in active_consultations if not row.is_read),
-            "confirmed_styles": style_selection_queryset.count(),
-        },
-        "top_styles_today": top_styles,
-        "active_clients_preview": active_preview,
-    }
+    if legacy_activity is not None:
+        ids: set[int] = set()
+        for client_identifier in legacy_activity.get(start.date().isoformat(), set()):
+            resolved = get_client_by_identifier(identifier=client_identifier)
+            if resolved is not None:
+                ids.add(resolved.id)
+        return ids
+    return set()
 
 
-def get_active_client_sessions(*, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
-    items = []
-    for row in _latest_active_consultations(admin=admin, designer=designer):
-        recommendation_count = 0
-        if row.selected_recommendation:
-            recommendation_count = FormerRecommendation.objects.filter(
-                client_id=row.client_id,
-                batch_id=row.selected_recommendation.batch_id,
-            ).count()
-        items.append(
-            {
-                "consultation_id": row.id,
-                "client_id": row.client_id,
-                "client_name": row.client.name,
-                "phone": row.client.phone,
-                "status": row.status,
-                "has_unread_consultation": not row.is_read,
-                "designer_id": row.designer_id or row.client.designer_id,
-                "designer_name": (
-                    row.designer.name
-                    if row.designer_id and row.designer
-                    else (row.client.designer.name if row.client.designer_id else None)
-                ),
-                "selected_style_name": row.selected_style.name if row.selected_style else None,
-                "recommendation_count": recommendation_count,
-                "last_activity_at": row.created_at,
-            }
-        )
-    return {"status": "ready", "items": items}
+def _latest_active_consultations(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> list["ConsultationRequest"]:
+    return get_legacy_active_consultation_items(admin=admin, designer=designer) or []
 
 
-def get_all_clients(*, query: str = "", admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
-    queryset = _scoped_client_queryset(admin=admin, designer=designer).select_related("shop", "designer").order_by("name", "id")
-    if query:
-        queryset = queryset.filter(Q(name__icontains=query) | Q(phone__icontains=query))
-
-    items = []
-    for client in queryset[:100]:
-        latest_consult = client.consultations.order_by("-created_at").first()
-        items.append(
-            {
-                "client_id": client.id,
-                "name": client.name,
-                "gender": client.gender,
-                "phone": client.phone,
-                "shop_id": client.shop_id,
-                "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
-                "designer_id": client.designer_id,
-                "designer_name": client.designer.name if client.designer_id and client.designer else None,
-                "assigned_at": client.assigned_at,
-                "assignment_source": client.assignment_source,
-                "is_assignment_pending": client.designer_id is None and bool(client.shop_id),
-                **_client_age_fields(client),
-                "created_at": client.created_at,
-                "last_consulted_at": latest_consult.created_at if latest_consult else None,
-                "has_active_consultation": client.consultations.filter(is_active=True).exists(),
-            }
-        )
-    return {"status": "ready", "items": items}
-
-
-def assign_client_to_designer(
+def _consultation_bridge_payload(
     *,
-    client: Client,
-    designer_id: int,
-    admin: AdminAccount,
+    consultation_id: int,
+    client: "Client",
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+    legacy_item: dict | None = None,
+    created_at=None,
 ) -> dict:
-    designer = (
-        Designer.objects.filter(
-            id=designer_id,
-            shop=admin,
-            is_active=True,
-        )
-        .select_related("shop")
-        .first()
-    )
-    if designer is None:
-        raise ValueError("해당 매장 소속의 활성 디자이너를 찾을 수 없습니다.")
-
-    if client.shop_id not in (None, admin.id) and client.designer_id is None:
-        raise ValueError("현재 매장 범위를 벗어난 고객입니다.")
-
-    if client.shop_id is None:
-        client.shop = admin
-
-    client.designer = designer
-    client.assigned_at = timezone.now()
-    client.assignment_source = "shop_manual_assignment"
-    client.save(update_fields=["shop", "designer", "assigned_at", "assignment_source"])
-
+    legacy_item = legacy_item or {}
+    resolved_admin = admin or client.shop
+    resolved_designer = designer
+    if resolved_designer is None and legacy_item.get("designer_id"):
+        resolved_designer = get_designer_by_identifier(identifier=legacy_item["designer_id"])
+    if resolved_designer is None:
+        resolved_designer = client.designer
+    created_at = created_at or legacy_item.get("last_activity_at") or timezone.now()
     return {
-        "status": "success",
+        "id": int(consultation_id),
+        "consultation_id": int(consultation_id),
+        "client": client,
         "client_id": client.id,
-        "designer_id": designer.id,
-        "designer_name": designer.name,
-        "assigned_at": client.assigned_at,
-        "assignment_source": client.assignment_source,
-    }
-
-
-def get_client_detail(*, client: Client, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
-    scoped_client_ids = set(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
-    if scoped_client_ids and client.id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
-
-    latest_survey = get_latest_survey(client)
-    latest_analysis = get_latest_analysis(client)
-    consultation_queryset = client.consultations
-    if designer is not None:
-        consultation_queryset = consultation_queryset.filter(Q(designer=designer) | Q(client__designer=designer))
-    elif admin is not None and scoped_client_ids:
-        consultation_queryset = consultation_queryset.filter(Q(admin=admin) | Q(client__shop=admin) | Q(designer__shop=admin))
-    latest_consultation = consultation_queryset.select_related("designer").order_by("-created_at").first()
-    notes_queryset = ClientSessionNote.objects.filter(client=client).select_related("admin", "designer", "consultation")
-    if designer is not None:
-        notes_queryset = notes_queryset.filter(Q(designer=designer) | Q(client__designer=designer))
-    elif admin is not None and scoped_client_ids:
-        notes_queryset = notes_queryset.filter(Q(admin=admin) | Q(client__shop=admin) | Q(designer__shop=admin))
-    notes = notes_queryset.order_by("-created_at")[:20]
-    capture_history = client.captures.order_by("-created_at")[:20]
-    analysis_history = client.face_analyses.order_by("-created_at")[:20]
-    selection_history = client.style_selections.order_by("-created_at")[:20]
-    chosen_recommendations = FormerRecommendation.objects.filter(client=client, is_chosen=True).order_by("-chosen_at", "-created_at")[:20]
-
-    return {
-        "status": "ready",
-        "client": {
-            "client_id": client.id,
-            "name": client.name,
-            "gender": client.gender,
-            "phone": client.phone,
-            "shop_id": client.shop_id,
-            "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
-            "designer": _serialize_designer_profile(client.designer),
-            **_client_age_fields(client),
-            "created_at": client.created_at,
-        },
-        "latest_survey": _serialize_survey(latest_survey),
-        "latest_analysis": _serialize_analysis(latest_analysis),
-        "capture_history": [_serialize_capture(record) for record in capture_history],
-        "analysis_history": [_serialize_analysis(analysis) for analysis in analysis_history],
-        "style_selection_history": [_serialize_style_selection(selection) for selection in selection_history],
-        "chosen_recommendation_history": [_serialize_recommendation(row) for row in chosen_recommendations],
-        "active_consultation": (
-            {
-                "consultation_id": latest_consultation.id,
-                "status": latest_consultation.status,
-                "is_active": latest_consultation.is_active,
-                "is_read": latest_consultation.is_read,
-                "source": latest_consultation.source,
-                "designer_id": latest_consultation.designer_id,
-                "designer_name": latest_consultation.designer.name if latest_consultation.designer_id and latest_consultation.designer else None,
-                "created_at": latest_consultation.created_at,
-                "closed_at": latest_consultation.closed_at,
-            }
-            if latest_consultation
-            else None
+        "admin": resolved_admin,
+        "admin_id": getattr(resolved_admin, "id", None),
+        "designer": resolved_designer,
+        "designer_id": getattr(resolved_designer, "id", None),
+        "source": legacy_item.get("source") or "legacy_result",
+        "survey_snapshot": json.loads(
+            json.dumps(_serialize_survey(get_latest_survey(client)), ensure_ascii=False, default=str)
         ),
-        "notes": [
-            {
-                "note_id": note.id,
-                "consultation_id": note.consultation_id,
-                "admin_id": note.admin_id,
-                "admin_name": note.admin.name if note.admin else None,
-                "designer_id": note.designer_id,
-                "designer_name": note.designer.name if note.designer else None,
-                "content": note.content,
-                "created_at": note.created_at,
-            }
-            for note in notes
-        ],
+        "analysis_data_snapshot": json.loads(
+            json.dumps(_serialize_analysis(get_latest_analysis(client)), ensure_ascii=False, default=str)
+        ),
+        "status": legacy_item.get("status") or "PENDING",
+        "is_active": bool(legacy_item.get("is_active", True)),
+        "is_read": not bool(legacy_item.get("has_unread_consultation")),
+        "closed_at": legacy_item.get("closed_at"),
+        "created_at": created_at,
     }
 
 
-def get_client_recommendation_report(*, client: Client, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
-    scoped_client_ids = set(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
-    if scoped_client_ids and client.id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
-
-    latest_analysis = get_latest_analysis(client)
-    latest_survey = get_latest_survey(client)
-    recommendation_queryset = FormerRecommendation.objects.filter(client=client, source="generated")
-    if (admin is not None or designer is not None) and scoped_client_ids:
-        recommendation_queryset = recommendation_queryset.filter(client_id__in=scoped_client_ids)
-    latest_generated = recommendation_queryset.order_by("-created_at").first()
-    batch_rows = []
-    if latest_generated:
-        batch_rows = list(FormerRecommendation.objects.filter(client=client, batch_id=latest_generated.batch_id).order_by("rank", "id"))
-    final_selected = FormerRecommendation.objects.filter(client=client, is_chosen=True).order_by("-chosen_at", "-created_at").first()
-
-    return {
-        "status": "ready",
-        "client": {
-            "client_id": client.id,
-            "name": client.name,
-            "phone": client.phone,
-            **_client_age_fields(client),
-        },
-        "latest_survey": _serialize_survey(latest_survey),
-        "latest_analysis": _serialize_analysis(latest_analysis),
-        "final_selected_style": (_serialize_recommendation(final_selected) if final_selected else None),
-        "latest_generated_batch": {
-            "batch_id": str(latest_generated.batch_id) if latest_generated else None,
-            "items": [_serialize_recommendation(row) for row in batch_rows],
-        },
-    }
+def _ensure_consultation_bridge_row(*, consultation_payload: dict) -> None:
+    return None
 
 
-def create_client_note(*, client: Client, consultation_id: int, content: str, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
-    consultation = ConsultationRequest.objects.filter(id=consultation_id, client=client).first()
-    if not consultation:
+def _ensure_admin_bridge_row(*, admin: "AdminAccount | None") -> None:
+    return None
+
+
+def _ensure_designer_bridge_row(*, designer: "Designer | None") -> None:
+    return None
+
+
+def _ensure_client_bridge_row(*, client: "Client") -> None:
+    return None
+
+
+def _update_consultation_bridge_row(*, consultation_id: int, **fields) -> None:
+    return None
+
+
+def _fetch_note_rows(*, client: "Client", limit: int = 20) -> list[dict]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id, consultation_id, admin_id, designer_id, content, created_at
+            FROM client_session_notes
+            WHERE client_id = %s
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s
+            """,
+            [client.id, int(limit)],
+        )
+        columns = [column[0] for column in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def _create_note_row(
+    *,
+    consultation_id: int,
+    client_id: int,
+    admin_id: int | None,
+    designer_id: int | None,
+    content: str,
+) -> int:
+    returning_supported = connection.vendor == "postgresql"
+    with connection.cursor() as cursor:
+        if returning_supported:
+            cursor.execute(
+                """
+                INSERT INTO client_session_notes (
+                    consultation_id, client_id, admin_id, designer_id, content, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                [consultation_id, client_id, admin_id, designer_id, content, timezone.now()],
+            )
+            row = cursor.fetchone()
+            return int(row[0])
+
+        cursor.execute(
+            """
+            INSERT INTO client_session_notes (
+                consultation_id, client_id, admin_id, designer_id, content, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            [consultation_id, client_id, admin_id, designer_id, content, timezone.now()],
+        )
+        cursor.execute("SELECT last_insert_rowid()")
+        row = cursor.fetchone()
+        return int(row[0])
+
+
+def _build_consultation_bridge_from_legacy_item(
+    *,
+    legacy_item: dict,
+    client: "Client",
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> "ConsultationRequest":
+    consultation_id = legacy_item.get("consultation_id")
+    if consultation_id in (None, ""):
         raise ValueError("The consultation session could not be found.")
-
-    if admin is not None and consultation.admin_id is None:
-        consultation.admin = admin
-    if designer is not None and consultation.designer_id is None:
-        consultation.designer = designer
-    if admin is not None or designer is not None:
-        update_fields = []
-        if admin is not None and consultation.admin_id == admin.id:
-            update_fields.append("admin")
-        if designer is not None and consultation.designer_id == designer.id:
-            update_fields.append("designer")
-        if update_fields:
-            consultation.save(update_fields=update_fields)
-
-    note = ClientSessionNote.objects.create(
-        consultation=consultation,
+    payload = _consultation_bridge_payload(
+        consultation_id=int(consultation_id),
         client=client,
         admin=admin,
         designer=designer,
-        content=content.strip(),
+        legacy_item=legacy_item,
     )
-    consultation.is_read = True
-    consultation.status = "IN_PROGRESS"
-    consultation.save(update_fields=["is_read", "status"])
-    return {
-        "status": "success",
-        "note_id": note.id,
-        "consultation_id": consultation.id,
-        "message": "The consultation note has been saved.",
-    }
+    _ensure_client_bridge_row(client=client)
+    try:
+        _ensure_consultation_bridge_row(consultation_payload=payload)
+    except IntegrityError:
+        pass
+    return payload
 
 
-def close_consultation_session(*, consultation_id: int, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
-    consultation = ConsultationRequest.objects.filter(id=consultation_id).select_related("client").first()
-    if not consultation:
-        raise ValueError("The consultation session could not be found.")
+def _resolve_consultation_bridge(
+    *,
+    consultation_id: int,
+    client: "Client | None" = None,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> "ConsultationRequest | None":
+    legacy_items = get_legacy_active_consultation_items(admin=admin, designer=designer, client=client) or []
+    for legacy_item in legacy_items:
+        if int(legacy_item.get("consultation_id") or 0) != int(consultation_id):
+            continue
+        resolved_client = client
+        if resolved_client is None:
+            resolved_client = get_client_by_identifier(
+                identifier=legacy_item.get("client_id") or legacy_item.get("legacy_client_id")
+            )
+        if resolved_client is None:
+            return None
+        return _build_consultation_bridge_from_legacy_item(
+            legacy_item=legacy_item,
+            client=resolved_client,
+            admin=admin,
+            designer=designer,
+        )
+    return None
 
-    if admin is not None and consultation.admin_id is None:
-        consultation.admin = admin
-    if designer is not None and consultation.designer_id is None:
-        consultation.designer = designer
 
-    consultation.is_active = False
-    consultation.is_read = True
-    consultation.status = "CLOSED"
-    consultation.closed_at = timezone.now()
-    update_fields = ["is_active", "is_read", "status", "closed_at"]
-    if admin is not None and consultation.admin_id == admin.id:
-        update_fields.append("admin")
-    if designer is not None and consultation.designer_id == designer.id:
-        update_fields.append("designer")
-    consultation.save(update_fields=update_fields)
-    return {
-        "status": "success",
-        "consultation_id": consultation.id,
-        "client_id": consultation.client_id,
-        "message": "The consultation session has been closed.",
-    }
-
-
-def _selection_matches_snapshot(selection: StyleSelection, filters: dict) -> bool:
-    snapshot = selection.survey_snapshot or {}
-    if not snapshot and hasattr(selection.client, "survey"):
-        survey = selection.client.survey
-        snapshot = {
-            "target_length": survey.target_length,
-            "target_vibe": survey.target_vibe,
-            "scalp_type": survey.scalp_type,
-            "hair_colour": survey.hair_colour,
-            "budget_range": survey.budget_range,
-        }
-    age_profile = build_client_age_profile(selection.client) or snapshot.get("age_profile") or {}
-
+def _selection_matches_payload(*, survey_snapshot: dict | None, age_profile: dict | None, filters: dict) -> bool:
+    survey_snapshot = survey_snapshot or {}
+    age_profile = age_profile or {}
     for key, value in filters.items():
         if value in (None, ""):
             continue
@@ -682,12 +737,398 @@ def _selection_matches_snapshot(selection: StyleSelection, filters: dict) -> boo
             if age_profile.get("age_group") != value:
                 return False
             continue
-        if snapshot.get(key) != value:
+        if survey_snapshot.get(key) != value:
             return False
     return True
 
 
-def _build_trend_report_snapshot(*, days: int, filters: dict, admin: AdminAccount | None, designer: Designer | None, total_records: int, filtered_records: int, ranking_count: int, unique_clients: int) -> dict:
+def get_admin_dashboard_summary(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    styles_by_id = ensure_catalog_styles()
+    legacy_selection_items = get_legacy_confirmed_selection_items(
+        since=start,
+        admin=admin,
+        designer=designer,
+    ) or []
+    counter = Counter(item["style_id"] for item in legacy_selection_items)
+    representative = {}
+    for item in legacy_selection_items:
+        representative.setdefault(item["style_id"], item)
+    top_styles = []
+    for style_id, selection_count in counter.most_common(5):
+        item = representative.get(style_id, {})
+        style = styles_by_id.get(style_id) or get_style_record(style_id=style_id)
+        top_styles.append(
+            {
+                "style_id": style_id,
+                "style_name": item.get("style_name") or (getattr(style, "name", None) if style else f"Style {style_id}"),
+                "image_url": resolve_storage_reference(item.get("image_url") or (getattr(style, "image_url", None) if style else None)),
+                "selection_count": selection_count,
+            }
+        )
+    confirmed_styles_count = len(legacy_selection_items)
+
+    legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer) or []
+    active_preview = [_serialize_consultation_like(row) for row in legacy_active_items[:5]]
+    active_consultation_count = len(legacy_active_items)
+    pending_consultation_count = sum(1 for row in legacy_active_items if row["has_unread_consultation"])
+    unique_visitors = len(
+        {
+            row["client_id"] or row["legacy_client_id"]
+            for row in [*legacy_active_items, *legacy_selection_items]
+            if row.get("client_id") or row.get("legacy_client_id")
+        }
+    )
+
+    return {
+        "status": "ready",
+        "ai_engine": _ai_health(),
+        "today_metrics": {
+            "unique_visitors": unique_visitors,
+            "active_clients": active_consultation_count,
+            "pending_consultations": pending_consultation_count,
+            "confirmed_styles": confirmed_styles_count,
+        },
+        "top_styles_today": top_styles,
+        "active_clients_preview": active_preview,
+    }
+
+
+def get_active_client_sessions(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    legacy_items = get_legacy_active_consultation_items(admin=admin, designer=designer) or []
+    return {"status": "ready", "items": [_serialize_consultation_like(item) for item in legacy_items]}
+
+
+def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    clients = _scoped_client_records(admin=admin, designer=designer, query=query)
+    legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer) or []
+    legacy_active_by_client: dict[str, dict] = {}
+    legacy_active_by_client = {
+        str(item.get("legacy_client_id") or ""): item
+        for item in legacy_active_items
+        if str(item.get("legacy_client_id") or "")
+    }
+
+    items = []
+    for client in clients[:100]:
+        legacy_active = legacy_active_by_client.get(str(get_legacy_client_id(client=client) or ""))
+        items.append(
+            {
+                "client_id": client.id,
+                "legacy_client_id": get_legacy_client_id(client=client),
+                "name": client.name,
+                "gender": client.gender,
+                "phone": client.phone,
+                "shop_id": client.shop_id,
+                "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
+                "designer_id": client.designer_id,
+                "legacy_designer_id": (
+                    get_legacy_designer_id(designer=client.designer)
+                    if client.designer_id and client.designer else None
+                ),
+                "designer_name": client.designer.name if client.designer_id and client.designer else None,
+                "assigned_at": client.assigned_at,
+                "assignment_source": client.assignment_source,
+                "is_assignment_pending": client.designer_id is None and bool(client.shop_id),
+                **_client_age_fields(client),
+                "created_at": client.created_at,
+                "last_consulted_at": (legacy_active.get("last_activity_at") if legacy_active else None),
+                "has_active_consultation": bool(legacy_active and legacy_active.get("is_active")),
+            }
+        )
+    return {"status": "ready", "items": items}
+
+
+def assign_client_to_designer(
+    *,
+    client: "Client",
+    designer_id: int | str,
+    admin: "AdminAccount",
+) -> dict:
+    designer = get_designer_for_admin(admin=admin, designer_id=designer_id)
+    if designer is None:
+        raise ValueError("해당 매장 소속의 활성 디자이너를 찾을 수 없습니다.")
+
+    if client.shop_id not in (None, admin.id) and client.designer_id is None:
+        raise ValueError("현재 매장 범위를 벗어난 고객입니다.")
+
+    if client.shop_id is None:
+        client.shop = admin
+
+    assigned_at = timezone.now()
+    if hasattr(client, "save"):
+        client.designer = designer
+        client.assigned_at = assigned_at
+        client.assignment_source = "shop_manual_assignment"
+        client.save(update_fields=["shop", "designer", "assigned_at", "assignment_source"])
+        sync_model_team_runtime_state(client=client)
+    else:
+        client = upsert_client_record(
+            phone=client.phone,
+            name=client.name,
+            gender=getattr(client, "gender", None),
+            age_input=getattr(client, "age_input", None),
+            birth_year_estimate=getattr(client, "birth_year_estimate", None),
+            shop=admin,
+            designer=designer,
+            assignment_source="shop_manual_assignment",
+        )
+        client.assigned_at = assigned_at
+
+    return {
+        "status": "success",
+        "client_id": client.id,
+        "legacy_client_id": get_legacy_client_id(client=client),
+        "designer_id": designer.id,
+        "legacy_designer_id": get_legacy_designer_id(designer=designer),
+        "designer_name": designer.name,
+        "assigned_at": client.assigned_at,
+        "assignment_source": client.assignment_source,
+    }
+
+
+def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
+    if scoped_client_ids and client.id not in scoped_client_ids:
+        raise ValueError("Client is outside the current admin scope.")
+
+    latest_survey = get_latest_survey(client)
+    latest_analysis = get_latest_analysis(client)
+    legacy_items = get_legacy_active_consultation_items(admin=admin, designer=designer, client=client) or []
+    legacy_active_consultation = legacy_items[0] if legacy_items else None
+    latest_consultation = None
+    notes = _fetch_note_rows(client=client, limit=20)
+    legacy_capture_history = get_legacy_capture_history(client=client, limit=20)
+    capture_history = legacy_capture_history
+    legacy_analysis_history = get_legacy_analysis_history(client=client, limit=20)
+    analysis_history = legacy_analysis_history
+    legacy_selection_history = get_legacy_confirmed_selection_items(admin=admin, designer=designer, client=client) or []
+    legacy_chosen_recommendations = [
+        row
+        for row in (get_legacy_former_recommendation_items(client=client) or [])
+        if row.get("is_chosen")
+    ]
+
+    return {
+        "status": "ready",
+        "client": {
+            "client_id": client.id,
+            "legacy_client_id": get_legacy_client_id(client=client),
+            "name": client.name,
+            "gender": client.gender,
+            "phone": client.phone,
+            "shop_id": client.shop_id,
+            "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
+            "designer": _serialize_designer_profile(client.designer),
+            **_client_age_fields(client),
+            "created_at": client.created_at,
+        },
+        "latest_survey": _serialize_survey(latest_survey),
+        "latest_analysis": _serialize_analysis(latest_analysis),
+        "capture_history": [_serialize_capture(record) for record in capture_history],
+        "analysis_history": [_serialize_analysis(analysis) for analysis in analysis_history],
+        "style_selection_history": [
+            _serialize_style_selection(selection)
+            for selection in legacy_selection_history
+        ],
+        "chosen_recommendation_history": [
+            _serialize_recommendation(row)
+            for row in legacy_chosen_recommendations
+        ],
+        "active_consultation": (
+                {
+                    "consultation_id": latest_consultation.id,
+                    "legacy_client_id": get_legacy_client_id(client=client),
+                    "status": latest_consultation.status,
+                    "is_active": latest_consultation.is_active,
+                    "is_read": latest_consultation.is_read,
+                "source": latest_consultation.source,
+                "designer_id": latest_consultation.designer_id,
+                "legacy_designer_id": (
+                    get_legacy_designer_id(designer=latest_consultation.designer)
+                    if latest_consultation.designer_id and latest_consultation.designer
+                    else None
+                ),
+                "designer_name": latest_consultation.designer.name if latest_consultation.designer_id and latest_consultation.designer else None,
+                "created_at": latest_consultation.created_at,
+                "closed_at": latest_consultation.closed_at,
+            }
+            if latest_consultation
+            else (
+                {
+                    "consultation_id": legacy_active_consultation["consultation_id"],
+                    "legacy_client_id": legacy_active_consultation.get("legacy_client_id"),
+                    "status": legacy_active_consultation["status"],
+                    "is_active": legacy_active_consultation["is_active"],
+                    "is_read": not legacy_active_consultation["has_unread_consultation"],
+                    "source": None,
+                    "designer_id": legacy_active_consultation["designer_id"],
+                    "legacy_designer_id": legacy_active_consultation.get("legacy_designer_id"),
+                    "designer_name": legacy_active_consultation["designer_name"],
+                    "created_at": legacy_active_consultation["last_activity_at"],
+                    "closed_at": None,
+                }
+                if legacy_active_consultation
+                else None
+            )
+        ),
+        "notes": [
+            {
+                "note_id": note["id"],
+                "consultation_id": note["consultation_id"],
+                "admin_id": note["admin_id"],
+                "admin_name": (
+                    getattr(get_admin_by_identifier(identifier=note["admin_id"]), "name", None)
+                    if note.get("admin_id") else None
+                ),
+                "designer_id": note["designer_id"],
+                "designer_name": (
+                    getattr(get_designer_by_identifier(identifier=note["designer_id"]), "name", None)
+                    if note.get("designer_id") else None
+                ),
+                "content": note["content"],
+                "created_at": note["created_at"],
+            }
+            for note in notes
+        ],
+    }
+
+
+def get_client_recommendation_report(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
+    if scoped_client_ids and client.id not in scoped_client_ids:
+        raise ValueError("Client is outside the current admin scope.")
+
+    latest_analysis = get_latest_analysis(client)
+    latest_survey = get_latest_survey(client)
+    legacy_rows = get_legacy_former_recommendation_items(client=client) or []
+    legacy_final_selected = next((row for row in legacy_rows if row.get("is_chosen")), None)
+
+    return {
+        "status": "ready",
+        "client": {
+            "client_id": client.id,
+            "legacy_client_id": get_legacy_client_id(client=client),
+            "name": client.name,
+            "phone": client.phone,
+            **_client_age_fields(client),
+        },
+        "latest_survey": _serialize_survey(latest_survey),
+        "latest_analysis": _serialize_analysis(latest_analysis),
+        "final_selected_style": (_serialize_recommendation(legacy_final_selected) if legacy_final_selected else None),
+        "latest_generated_batch": {
+            "batch_id": (legacy_rows[0]["batch_id"] if legacy_rows else None),
+            "items": [_serialize_recommendation(row) for row in legacy_rows],
+        },
+    }
+
+
+def create_client_note(*, client: "Client", consultation_id: int, content: str, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    consultation = _resolve_consultation_bridge(
+        consultation_id=consultation_id,
+        client=client,
+        admin=admin,
+        designer=designer,
+    )
+    if not consultation:
+        raise ValueError("The consultation session could not be found.")
+
+    consultation["admin_id"] = consultation.get("admin_id") or getattr(admin, "id", None)
+    consultation["designer_id"] = consultation.get("designer_id") or getattr(designer, "id", None)
+    _update_consultation_bridge_row(
+        consultation_id=consultation["id"],
+        admin_id=consultation.get("admin_id"),
+        designer_id=consultation.get("designer_id"),
+    )
+
+    note_id = _create_note_row(
+        consultation_id=consultation["id"],
+        client_id=client.id,
+        admin_id=getattr(admin, "id", None),
+        designer_id=getattr(designer, "id", None),
+        content=content.strip(),
+    )
+    _update_consultation_bridge_row(
+        consultation_id=consultation["id"],
+        is_read=True,
+        status="IN_PROGRESS",
+    )
+    _sync_legacy_consultation_status(
+        client=client,
+        consultation_id=consultation["id"],
+        status_value="IN_PROGRESS",
+        is_active=True,
+        is_read=True,
+    )
+    sync_model_team_runtime_state(client=client)
+    return {
+        "status": "success",
+        "note_id": note_id,
+        "consultation_id": consultation["id"],
+        "client_id": client.id,
+        "legacy_client_id": get_legacy_client_id(client=client),
+        "message": "The consultation note has been saved.",
+    }
+
+
+def close_consultation_session(*, consultation_id: int, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    consultation = _resolve_consultation_bridge(
+        consultation_id=consultation_id,
+        admin=admin,
+        designer=designer,
+    )
+    if not consultation:
+        raise ValueError("The consultation session could not be found.")
+
+    consultation["admin_id"] = consultation.get("admin_id") or getattr(admin, "id", None)
+    consultation["designer_id"] = consultation.get("designer_id") or getattr(designer, "id", None)
+    consultation["is_active"] = False
+    consultation["is_read"] = True
+    consultation["status"] = "CLOSED"
+    consultation["closed_at"] = timezone.now()
+    _update_consultation_bridge_row(
+        consultation_id=consultation["id"],
+        admin_id=consultation.get("admin_id"),
+        designer_id=consultation.get("designer_id"),
+        is_active=False,
+        is_read=True,
+        status="CLOSED",
+        closed_at=consultation["closed_at"],
+    )
+    _sync_legacy_consultation_status(
+        client=consultation["client"],
+        consultation_id=consultation["id"],
+        status_value="CLOSED",
+        is_active=False,
+        is_read=True,
+        closed_at=consultation["closed_at"],
+    )
+    sync_model_team_runtime_state(client=consultation["client"])
+    return {
+        "status": "success",
+        "consultation_id": consultation["id"],
+        "client_id": consultation["client_id"],
+        "legacy_client_id": get_legacy_client_id(client=consultation["client"]),
+        "message": "The consultation session has been closed.",
+    }
+
+
+def _selection_matches_snapshot(selection: "StyleSelection", filters: dict) -> bool:
+    snapshot = selection.survey_snapshot or {}
+    if not snapshot and hasattr(selection.client, "survey"):
+        survey = selection.client.survey
+        snapshot = {
+            "target_length": survey.target_length,
+            "target_vibe": survey.target_vibe,
+            "scalp_type": survey.scalp_type,
+            "hair_colour": survey.hair_colour,
+            "budget_range": survey.budget_range,
+        }
+    age_profile = build_client_age_profile(selection.client) or snapshot.get("age_profile") or {}
+    return _selection_matches_payload(survey_snapshot=snapshot, age_profile=age_profile, filters=filters)
+
+
+def _build_trend_report_snapshot(*, days: int, filters: dict, admin: "AdminAccount | None", designer: "Designer | None", total_records: int, filtered_records: int, ranking_count: int, unique_clients: int) -> dict:
     return {
         "days": days,
         "filters": filters,
@@ -700,7 +1141,7 @@ def _build_trend_report_snapshot(*, days: int, filters: dict, admin: AdminAccoun
     }
 
 
-def _build_style_report_snapshot(*, style_id: int, days: int, admin: AdminAccount | None, designer: Designer | None, recent_count: int, chosen_count: int, related_count: int) -> dict:
+def _build_style_report_snapshot(*, style_id: int, days: int, admin: "AdminAccount | None", designer: "Designer | None", recent_count: int, chosen_count: int, related_count: int) -> dict:
     return {
         "style_id": style_id,
         "days": days,
@@ -712,30 +1153,57 @@ def _build_style_report_snapshot(*, style_id: int, days: int, admin: AdminAccoun
     }
 
 
-def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
+def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     filters = filters or {}
     cutoff = timezone.now() - timezone.timedelta(days=days)
-    selections_queryset = StyleSelection.objects.filter(created_at__gte=cutoff).select_related("client").order_by("-created_at")
-    scoped_client_ids = list(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
-    if admin is not None or designer is not None:
-        selections_queryset = selections_queryset.filter(client_id__in=scoped_client_ids)
-    selections = list(selections_queryset)
-    filtered = [row for row in selections if _selection_matches_snapshot(row, filters)]
-
-    counter = Counter(row.style_id for row in filtered)
+    legacy_items = get_legacy_confirmed_selection_items(
+        since=cutoff,
+        admin=admin,
+        designer=designer,
+    ) or []
+    selections = legacy_items
+    filtered = [
+        row
+        for row in selections
+        if _selection_matches_payload(
+            survey_snapshot=row.get("survey_snapshot"),
+            age_profile=row.get("age_profile"),
+            filters=filters,
+        )
+    ]
+    counter = Counter(row["style_id"] for row in filtered)
+    representative = {}
+    for row in filtered:
+        representative.setdefault(row["style_id"], row)
     ranking = []
     for rank, (style_id, count) in enumerate(counter.most_common(10), start=1):
+        row = representative.get(style_id, {})
         style_data = _style_snapshot(style_id)
         ranking.append(
             {
                 "rank": rank,
                 "style_id": style_id,
-                "style_name": style_data["style_name"],
-                "image_url": style_data["image_url"],
+                "style_name": row.get("style_name") or style_data["style_name"],
+                "image_url": resolve_storage_reference(row.get("image_url") or style_data["image_url"]),
                 "selection_count": count,
-                "keywords": style_data["keywords"],
+                "keywords": row.get("keywords") or style_data["keywords"],
             }
         )
+    age_decade_counter = Counter()
+    age_group_counter = Counter()
+    for row in filtered:
+        profile = row.get("age_profile") or {}
+        if profile.get("age_decade"):
+            age_decade_counter[profile["age_decade"]] += 1
+        if profile.get("age_group"):
+            age_group_counter[profile["age_group"]] += 1
+    unique_clients = len(
+        {
+            row.get("client_id") or row.get("legacy_client_id")
+            for row in filtered
+            if row.get("client_id") or row.get("legacy_client_id")
+        }
+    )
 
     distribution = [
         {
@@ -745,17 +1213,6 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         }
         for item in ranking
     ]
-    age_decade_counter = Counter()
-    age_group_counter = Counter()
-    for row in filtered:
-        profile = build_client_age_profile(row.client)
-        if not profile:
-            continue
-        if profile.get("age_decade"):
-            age_decade_counter[profile["age_decade"]] += 1
-        if profile.get("age_group"):
-            age_group_counter[profile["age_group"]] += 1
-    unique_clients = len({row.client_id for row in filtered})
     report_snapshot = _build_trend_report_snapshot(
         days=days,
         filters=filters,
@@ -775,6 +1232,7 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         admin is not None,
         designer is not None,
     )
+    legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer)
     return {
         "status": "ready",
         "days": days,
@@ -782,7 +1240,7 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         "kpi": {
             "unique_clients": unique_clients,
             "total_confirmations": len(filtered),
-            "active_consultations": len(_latest_active_consultations(admin=admin, designer=designer)),
+            "active_consultations": len(legacy_active_items),
         },
         "ranking": ranking,
         "distribution": distribution,
@@ -803,17 +1261,17 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
     }
 
 
-def get_style_report(*, style_id: int, days: int = 7, admin: AdminAccount | None = None, designer: Designer | None = None) -> dict:
+def get_style_report(*, style_id: int, days: int = 7, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     style_data = _style_snapshot(style_id)
     cutoff = timezone.now() - timezone.timedelta(days=days)
-    recent_queryset = StyleSelection.objects.filter(style_id=style_id, created_at__gte=cutoff)
-    chosen_queryset = FormerRecommendation.objects.filter(style_id_snapshot=style_id, is_chosen=True)
-    scoped_client_ids = list(_scoped_client_queryset(admin=admin, designer=designer).values_list("id", flat=True))
-    if admin is not None or designer is not None:
-        recent_queryset = recent_queryset.filter(client_id__in=scoped_client_ids)
-        chosen_queryset = chosen_queryset.filter(client_id__in=scoped_client_ids)
-    recent_count = recent_queryset.count()
-    chosen_count = chosen_queryset.count()
+    legacy_items = get_legacy_confirmed_selection_items(
+        since=cutoff,
+        admin=admin,
+        designer=designer,
+    ) or []
+    filtered_items = [row for row in legacy_items if row["style_id"] == style_id]
+    recent_count = len(filtered_items)
+    chosen_count = len(filtered_items)
 
     related = []
     target_profile = next((item for item in STYLE_CATALOG if item.style_id == style_id), None)
