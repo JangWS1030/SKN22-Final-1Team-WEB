@@ -12,7 +12,13 @@
 
 {% block content %}
 <style>
-  .detail-card { max-width: 800px; margin: 0 auto; padding: 32px !important; border-radius: 24px !important; }
+  .detail-card { 
+    max-width: 800px; 
+    margin: 0 auto; 
+    padding: 40px 32px 32px !important; 
+    border-radius: 24px !important; 
+    position: relative; /* 버튼 배치를 위한 기준점 */
+  }
   .info-group { margin-bottom: 32px; border-bottom: 1.5px solid var(--line); padding-bottom: 24px; }
   .info-group:last-child { border-bottom: none; }
   .info-label { font-size: 13px; font-weight: 700; color: var(--text-secondary); margin-bottom: 12px; display: block; }
@@ -20,15 +26,48 @@
   .survey-item { background: var(--bg-light); padding: 16px; border-radius: 12px; }
   .survey-tag { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: block; }
   .survey-value { font-size: 16px; font-weight: 700; color: var(--bg-dark); }
-  .back-btn { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); text-decoration: none; font-size: 14px; margin-bottom: 24px; }
-  .back-btn:hover { color: var(--bg-dark); }
+  
+  /* 개선된 대시보드 돌아가기 버튼 스타일 */
+  .back-btn-container {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+  }
+  .back-btn { 
+    display: inline-flex; 
+    align-items: center; 
+    gap: 6px; 
+    color: var(--text-secondary); 
+    text-decoration: none; 
+    font-size: 13px; 
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 10px;
+    border: 1.5px solid var(--line);
+    background: #fff;
+    transition: all 0.2s ease;
+  }
+  .back-btn:hover { 
+    color: var(--bg-dark); 
+    border-color: var(--bg-dark);
+    background: #fcfcfc;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
 </style>
 
 <div class="customer-layout" style="display: block;">
-  <a href="{% url 'partner_staff_dashboard' %}" class="back-btn">← 대시보드로 돌아가기</a>
-  
-  <div class="panel detail-card" id="detailContent">
-    <div style="text-align: center; padding: 60px; opacity: 0.5;">데이터를 불러오는 중...</div>
+  <div class="panel detail-card">
+    <!-- 박스 안쪽 우측 상단에 배치 -->
+    <div class="back-btn-container">
+      <a href="{% url 'partner_staff_dashboard' %}" class="back-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        대시보드
+      </a>
+    </div>
+
+    <div id="detailContent">
+      <div style="text-align: center; padding: 60px; opacity: 0.5;">데이터를 불러오는 중...</div>
+    </div>
   </div>
 </div>
 {% endblock %}

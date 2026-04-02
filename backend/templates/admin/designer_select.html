@@ -178,7 +178,12 @@
         const data = await response.json();
         if (data.status === 'success') {
           updateStatus("인증 성공!", "success");
-          setTimeout(() => { window.location.href = data.redirect; }, 600);
+          
+          // URL 파라미터에서 next 값 확인 (최종 목적지)
+          const urlParams = new URLSearchParams(window.location.search);
+          const nextUrl = urlParams.get('next') || data.redirect || "{% url 'partner_staff_dashboard' %}";
+          
+          setTimeout(() => { window.location.href = nextUrl; }, 600);
         } else {
           handleFail(data.message);
         }
