@@ -1,4 +1,6 @@
-from django.shortcuts import get_object_or_404
+from typing import TYPE_CHECKING
+
+from django.http import Http404
 import logging
 
 from django.utils import timezone
@@ -21,7 +23,7 @@ from app.api.v1.admin_serializers import (
     DesignerSerializer,
 )
 from app.api.v1.admin_services import (
-    _scoped_client_queryset,
+    _scoped_client_ids,
     assign_client_to_designer,
     close_consultation_session,
     create_client_note,
@@ -36,13 +38,30 @@ from app.api.v1.admin_services import (
     login_admin,
     register_admin,
 )
-from app.models_django import AdminAccount, CaptureRecord, Client, ConsultationRequest, Designer
 from app.session_state import get_session_admin, get_session_designer, set_admin_session
 from app.services.ai_facade import get_ai_health
 from app.services.chatbot_service import build_admin_chatbot_reply, get_chatbot_backend_status
+from app.services.model_team_bridge import (
+    get_admin_by_identifier,
+    get_client_by_identifier,
+    get_designers_for_admin,
+    get_legacy_activity_client_map_by_day,
+    get_legacy_admin_id,
+    get_legacy_designer_id,
+)
+
+if TYPE_CHECKING:
+    from app.models_django import AdminAccount, Designer
 
 
 logger = logging.getLogger(__name__)
+
+
+def _get_client_or_404(identifier):
+    client = get_client_by_identifier(identifier=identifier)
+    if client is None:
+        raise Http404("Client not found.")
+    return client
 
 
 def _build_admin_register_errors(message: str) -> dict[str, list[str]]:
@@ -58,22 +77,38 @@ def _build_admin_login_errors(message: str) -> dict[str, list[str]]:
     return {"non_field_errors": [message]}
 
 
-def _resolve_request_admin(request) -> AdminAccount | None:
-    if isinstance(getattr(request, "user", None), AdminAccount):
-        return request.user
+def _resolve_request_admin(request) -> "AdminAccount | None":
+    user = getattr(request, "user", None)
+    if getattr(user, "role", None) in {"owner", "manager", "staff"}:
+        admin = get_admin_by_identifier(identifier=getattr(user, "id", None))
+        if admin is not None:
+            return admin
     return get_session_admin(request=request)
 
 
-def _resolve_request_designer(request) -> Designer | None:
+def _resolve_request_designer(request) -> "Designer | None":
     return get_session_designer(request=request)
 
 
-def _resolve_request_staff(request) -> tuple[AdminAccount | None, Designer | None]:
+def _resolve_request_staff(request) -> tuple["AdminAccount | None", "Designer | None"]:
     admin = _resolve_request_admin(request)
     designer = _resolve_request_designer(request)
     if admin is None and designer is not None:
         admin = designer.shop
     return admin, designer
+
+
+def _resolve_payload_admin(payload) -> "AdminAccount | None":
+    if not isinstance(payload, dict):
+        return None
+    admin_payload = payload.get("admin") if isinstance(payload.get("admin"), dict) else {}
+    identifier = (
+        payload.get("legacy_admin_id")
+        or admin_payload.get("legacy_admin_id")
+        or payload.get("admin_id")
+        or admin_payload.get("admin_id")
+    )
+    return get_admin_by_identifier(identifier=identifier)
 
 
 def _legacy_staff_required(request):
@@ -120,7 +155,7 @@ class AdminRegisterView(CompatEnvelopeAPIView):
                 error_code="validation_error",
                 errors=_build_admin_register_errors(message),
             )
-        admin = AdminAccount.objects.filter(id=payload["admin_id"], is_active=True).first()
+        admin = _resolve_payload_admin(payload)
         if admin is not None:
             set_admin_session(request=request, admin=admin)
             payload["redirect"] = "/partner/dashboard/"
@@ -143,7 +178,7 @@ class AdminLoginView(CompatEnvelopeAPIView):
                 error_code="validation_error",
                 errors=_build_admin_login_errors(message),
             )
-        admin = AdminAccount.objects.filter(id=payload["admin"]["admin_id"], is_active=True).first()
+        admin = _resolve_payload_admin(payload)
         if admin is not None:
             set_admin_session(request=request, admin=admin)
             payload["redirect"] = "/partner/dashboard/"
@@ -208,10 +243,12 @@ class LegacyAllClientsView(CompatEnvelopeAPIView):
         items = [
             {
                 "id": item["client_id"],
+                "legacy_client_id": item.get("legacy_client_id"),
                 "name": item["name"],
                 "phone": item["phone"],
                 "created_at": item["created_at"],
                 "designer_id": item["designer_id"],
+                "legacy_designer_id": item.get("legacy_designer_id"),
                 "designer_name": item["designer_name"],
                 "assigned_at": item["assigned_at"],
                 "assignment_source": item["assignment_source"],
@@ -225,11 +262,11 @@ class LegacyAllClientsView(CompatEnvelopeAPIView):
 class AdminClientDetailView(AdminProtectedAPIView):
     @extend_schema(
         summary="Admin client detail",
-        parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
+        parameters=[OpenApiParameter("client_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True)],
         responses={200: OpenApiTypes.OBJECT},
     )
     def get(self, request):
-        client = get_object_or_404(Client, id=request.query_params.get("client_id"))
+        client = _get_client_or_404(request.query_params.get("client_id"))
         try:
             return Response(get_client_detail(client=client, admin=request.user))
         except ValueError as exc:
@@ -241,13 +278,13 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
         summary="Legacy customer detail for template dashboard",
         responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
     )
-    def get(self, request, pk: int):
+    def get(self, request, pk):
         staff, error_response = _legacy_staff_required(request)
         if error_response:
             return error_response
         admin, designer = staff
 
-        client = get_object_or_404(Client, id=pk)
+        client = _get_client_or_404(pk)
         try:
             payload = get_client_detail(client=client, admin=admin, designer=designer)
         except ValueError as exc:
@@ -256,6 +293,7 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
         return Response(
             {
                 "id": payload["client"]["client_id"],
+                "legacy_client_id": payload["client"].get("legacy_client_id"),
                 "name": payload["client"]["name"],
                 "phone": payload["client"]["phone"],
                 "survey": payload.get("latest_survey"),
@@ -281,7 +319,7 @@ class LegacyAdminClientAssignView(CompatEnvelopeAPIView):
         request=OpenApiTypes.OBJECT,
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
     )
-    def post(self, request, pk: int):
+    def post(self, request, pk):
         admin, error_response = _legacy_shop_required(request)
         if error_response:
             return error_response
@@ -295,8 +333,8 @@ class LegacyAdminClientAssignView(CompatEnvelopeAPIView):
         except (TypeError, ValueError):
             return detail_response("디자이너 정보가 올바르지 않습니다.", status_code=status.HTTP_400_BAD_REQUEST)
 
-        client = get_object_or_404(Client, id=pk)
-        scoped_ids = set(_scoped_client_queryset(admin=admin).values_list("id", flat=True))
+        client = _get_client_or_404(pk)
+        scoped_ids = set(_scoped_client_ids(admin=admin))
         if client.id not in scoped_ids:
             return detail_response("현재 매장 범위를 벗어난 고객입니다.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -310,11 +348,11 @@ class LegacyAdminClientAssignView(CompatEnvelopeAPIView):
 class AdminClientRecommendationView(AdminProtectedAPIView):
     @extend_schema(
         summary="Admin client recommendation report",
-        parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
+        parameters=[OpenApiParameter("client_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True)],
         responses={200: OpenApiTypes.OBJECT},
     )
     def get(self, request):
-        client = get_object_or_404(Client, id=request.query_params.get("client_id"))
+        client = _get_client_or_404(request.query_params.get("client_id"))
         try:
             return Response(get_client_recommendation_report(client=client, admin=request.user))
         except ValueError as exc:
@@ -326,7 +364,7 @@ class ConsultationNoteView(AdminProtectedAPIView):
     def post(self, request):
         serializer = ConsultationNoteCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        client = get_object_or_404(Client, id=serializer.validated_data["client_id"])
+        client = _get_client_or_404(serializer.validated_data["client_id"])
         try:
             payload = create_client_note(
                 client=client,
@@ -393,25 +431,18 @@ class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
         # Trend reporting is store-wide even when a designer session is active.
         trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=None)
         clients_payload = get_all_clients(admin=admin, designer=None)
-        client_ids = [item["client_id"] for item in clients_payload["items"]]
-        client_filter = {"client_id__in": client_ids} if client_ids else {}
         start_date = timezone.localdate() - timezone.timedelta(days=days - 1)
-        activity_by_day: dict[str, set[int]] = {
-            (start_date + timezone.timedelta(days=offset)).isoformat(): set()
-            for offset in range(days)
-        }
-
-        for created_at, client_id in CaptureRecord.objects.filter(
-            created_at__date__gte=start_date,
-            **client_filter,
-        ).values_list("created_at", "client_id"):
-            activity_by_day[timezone.localtime(created_at).date().isoformat()].add(client_id)
-
-        for created_at, client_id in ConsultationRequest.objects.filter(
-            created_at__date__gte=start_date,
-            **client_filter,
-        ).values_list("created_at", "client_id"):
-            activity_by_day[timezone.localtime(created_at).date().isoformat()].add(client_id)
+        activity_by_day = get_legacy_activity_client_map_by_day(
+            start_date=start_date,
+            days=days,
+            admin=admin,
+            designer=None,
+        )
+        if activity_by_day is None:
+            activity_by_day = {
+                (start_date + timezone.timedelta(days=offset)).isoformat(): set()
+                for offset in range(days)
+            }
 
         total_customers = len(clients_payload["items"])
         new_today = sum(
@@ -493,6 +524,10 @@ class AdminChatbotAskView(CompatEnvelopeAPIView):
         )
         payload["actor_type"] = "designer" if designer is not None else "admin"
         payload["designer_id"] = designer.id if designer is not None else None
+        payload["legacy_admin_id"] = get_legacy_admin_id(admin=admin)
+        payload["legacy_designer_id"] = (
+            get_legacy_designer_id(designer=designer) if designer is not None else None
+        )
         return Response(payload)
 
 
@@ -513,7 +548,12 @@ class AdminAiHealthView(CompatEnvelopeAPIView):
                 "status": "ready",
                 "checked_at": timezone.now(),
                 "actor_type": "designer" if designer is not None else "admin",
+                "admin_id": admin.id,
+                "legacy_admin_id": get_legacy_admin_id(admin=admin),
                 "designer_id": designer.id if designer is not None else None,
+                "legacy_designer_id": (
+                    get_legacy_designer_id(designer=designer) if designer is not None else None
+                ),
                 "ai_engine": get_ai_health(),
                 "chatbot_backend": get_chatbot_backend_status(),
             }
@@ -527,6 +567,6 @@ class DesignerListView(CompatEnvelopeAPIView):
         if error_response:
             return error_response
         admin, _ = staff
-        designers = Designer.objects.filter(shop=admin, is_active=True)
+        designers = get_designers_for_admin(admin=admin)
         serializer = DesignerSerializer(designers, many=True)
         return Response(serializer.data)

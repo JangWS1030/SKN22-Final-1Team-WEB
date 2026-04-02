@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.conf import settings
 from django.core import signing
 from rest_framework import authentication
 from rest_framework import exceptions
 from rest_framework.permissions import BasePermission
 
-from app.models_django import AdminAccount, Client
+from app.services.model_team_bridge import (
+    get_admin_by_identifier,
+    get_admin_by_legacy_id,
+    get_client_by_identifier,
+    get_client_by_legacy_id,
+    get_legacy_admin_id,
+    get_legacy_client_id,
+)
+
+if TYPE_CHECKING:
+    from app.models_django import AdminAccount, Client
 
 
 ADMIN_ACCESS_TOKEN_SALT = "mirrai.admin.auth.v1"
@@ -62,6 +74,7 @@ def build_admin_token(*, admin: AdminAccount) -> str:
         "type": "admin",
         "token_kind": "access",
         "admin_id": admin.id,
+        "legacy_admin_id": get_legacy_admin_id(admin=admin),
         "role": admin.role,
         "store_name": admin.store_name,
     }
@@ -73,6 +86,7 @@ def build_admin_refresh_token(*, admin: AdminAccount) -> str:
         "type": "admin",
         "token_kind": "refresh",
         "admin_id": admin.id,
+        "legacy_admin_id": get_legacy_admin_id(admin=admin),
     }
     return _build_signed_token(payload=payload, salt=ADMIN_REFRESH_TOKEN_SALT)
 
@@ -82,6 +96,7 @@ def build_client_token(*, client: Client) -> str:
         "type": "client",
         "token_kind": "access",
         "client_id": client.id,
+        "legacy_client_id": get_legacy_client_id(client=client),
         "phone": client.phone,
     }
     return _build_signed_token(payload=payload, salt=CLIENT_ACCESS_TOKEN_SALT)
@@ -92,6 +107,7 @@ def build_client_refresh_token(*, client: Client) -> str:
         "type": "client",
         "token_kind": "refresh",
         "client_id": client.id,
+        "legacy_client_id": get_legacy_client_id(client=client),
     }
     return _build_signed_token(payload=payload, salt=CLIENT_REFRESH_TOKEN_SALT)
 
@@ -144,6 +160,8 @@ def decode_client_refresh_token(token: str) -> dict:
 
 def issue_admin_token_pair(*, admin: AdminAccount) -> dict:
     return {
+        "admin_id": admin.id,
+        "legacy_admin_id": get_legacy_admin_id(admin=admin),
         "access_token": build_admin_token(admin=admin),
         "refresh_token": build_admin_refresh_token(admin=admin),
         "token_type": "bearer",
@@ -154,6 +172,8 @@ def issue_admin_token_pair(*, admin: AdminAccount) -> dict:
 
 def issue_client_token_pair(*, client: Client) -> dict:
     return {
+        "client_id": client.id,
+        "legacy_client_id": get_legacy_client_id(client=client),
         "access_token": build_client_token(client=client),
         "refresh_token": build_client_refresh_token(client=client),
         "token_type": "bearer",
@@ -162,25 +182,41 @@ def issue_client_token_pair(*, client: Client) -> dict:
     }
 
 
+def _resolve_admin_from_payload(payload: dict) -> AdminAccount | None:
+    legacy_admin_id = payload.get("legacy_admin_id")
+    if legacy_admin_id:
+        admin = get_admin_by_legacy_id(legacy_admin_id=legacy_admin_id)
+        if admin is not None:
+            return admin
+    return get_admin_by_identifier(identifier=payload.get("admin_id"))
+
+
+def _resolve_client_from_payload(payload: dict) -> Client | None:
+    legacy_client_id = payload.get("legacy_client_id")
+    if legacy_client_id:
+        client = get_client_by_legacy_id(legacy_client_id=legacy_client_id)
+        if client is not None:
+            return client
+    return get_client_by_identifier(identifier=payload.get("client_id"))
+
+
 def refresh_admin_access_token(*, refresh_token: str) -> dict:
     payload = decode_admin_refresh_token(refresh_token)
-    admin = AdminAccount.objects.filter(id=payload["admin_id"], is_active=True).first()
+    admin = _resolve_admin_from_payload(payload)
     if admin is None:
         raise exceptions.AuthenticationFailed("Admin account not found.")
     return {
         **issue_admin_token_pair(admin=admin),
-        "admin_id": admin.id,
     }
 
 
 def refresh_client_access_token(*, refresh_token: str) -> dict:
     payload = decode_client_refresh_token(refresh_token)
-    client = Client.objects.filter(id=payload["client_id"]).first()
+    client = _resolve_client_from_payload(payload)
     if client is None:
         raise exceptions.AuthenticationFailed("Client account not found.")
     return {
         **issue_client_token_pair(client=client),
-        "client_id": client.id,
     }
 
 
@@ -197,7 +233,7 @@ class AdminTokenAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed("Authorization header must use Bearer token.")
 
         payload = decode_admin_token(token)
-        admin = AdminAccount.objects.filter(id=payload["admin_id"], is_active=True).first()
+        admin = _resolve_admin_from_payload(payload)
         if admin is None:
             raise exceptions.AuthenticationFailed("Admin account not found.")
         return admin, payload
@@ -205,4 +241,9 @@ class AdminTokenAuthentication(authentication.BaseAuthentication):
 
 class IsAuthenticatedAdmin(BasePermission):
     def has_permission(self, request, view) -> bool:
-        return isinstance(getattr(request, "user", None), AdminAccount)
+        user = getattr(request, "user", None)
+        if user is None:
+            return False
+        if getattr(user, "role", None) not in {"owner", "manager", "staff"}:
+            return False
+        return get_admin_by_identifier(identifier=getattr(user, "id", None)) is not None
