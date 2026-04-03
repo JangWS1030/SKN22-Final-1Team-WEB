@@ -25,6 +25,7 @@ CUSTOMER_LEGACY_ID_SESSION_KEY = "customer_legacy_id"
 CUSTOMER_NAME_SESSION_KEY = "customer_name"
 ADMIN_ID_SESSION_KEY = "admin_id"
 ADMIN_LEGACY_ID_SESSION_KEY = "admin_legacy_id"
+ADMIN_STORE_NAME_SESSION_KEY = "admin_store_name"
 ADMIN_NAME_SESSION_KEY = "admin_name"
 DESIGNER_ID_SESSION_KEY = "designer_id"
 DESIGNER_LEGACY_ID_SESSION_KEY = "designer_legacy_id"
@@ -71,6 +72,7 @@ def get_session_customer(*, request: HttpRequest) -> Client | None:
 def set_admin_session(*, request: HttpRequest, admin: AdminAccount) -> None:
     request.session[ADMIN_ID_SESSION_KEY] = admin.id
     request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
+    request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
     request.session[ADMIN_NAME_SESSION_KEY] = admin.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
@@ -79,6 +81,7 @@ def set_admin_session(*, request: HttpRequest, admin: AdminAccount) -> None:
 def clear_admin_session(*, request: HttpRequest) -> None:
     request.session.pop(ADMIN_ID_SESSION_KEY, None)
     request.session.pop(ADMIN_LEGACY_ID_SESSION_KEY, None)
+    request.session.pop(ADMIN_STORE_NAME_SESSION_KEY, None)
     request.session.pop(ADMIN_NAME_SESSION_KEY, None)
     request.session.pop(OWNER_DASHBOARD_ALLOWED_SESSION_KEY, None)
     request.session.modified = True
@@ -91,6 +94,7 @@ def get_session_admin(*, request: HttpRequest) -> AdminAccount | None:
         if admin is not None:
             request.session[ADMIN_ID_SESSION_KEY] = admin.id
             request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
+            request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
             request.session[ADMIN_NAME_SESSION_KEY] = admin.name
             request.session.modified = True
             return admin
@@ -100,6 +104,7 @@ def get_session_admin(*, request: HttpRequest) -> AdminAccount | None:
         admin = get_admin_by_identifier(identifier=admin_id)
         if admin is not None:
             request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
+            request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
             request.session[ADMIN_NAME_SESSION_KEY] = admin.name
             request.session.modified = True
             return admin

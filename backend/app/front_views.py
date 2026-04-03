@@ -176,6 +176,8 @@ def privacy_policy_page(request):
 
 @never_cache
 def client_login_page(request):
+    if request.method == "GET" and get_session_customer(request=request) is not None:
+        return redirect("customer_resume")
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
         gender = (request.POST.get("gender") or "").strip()
@@ -343,6 +345,9 @@ def admin_login_page(request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
     if get_session_designer(request=request) is not None:
         return redirect(f"{reverse('partner_staff_dashboard')}?notice=partner_forbidden_designer")
+    admin = get_session_admin(request=request)
+    if admin is not None:
+        return redirect("partner_dashboard")
     return _render_partner_login(request)
 
 
@@ -538,8 +543,6 @@ def admin_dashboard_page(request):
         return redirect("partner_staff_dashboard")
     if not admin:
         return redirect("partner_index")
-    if not can_access_owner_dashboard(request=request):
-        return redirect("partner_index")
     return render(
         request,
         "admin/index.html",
@@ -548,7 +551,7 @@ def admin_dashboard_page(request):
             "admin": admin,
             "active_shop": admin,
             "is_designer_session": False,
-            "is_shop_owner": True,
+            "is_shop_owner": can_access_owner_dashboard(request=request),
         },
     )
 
@@ -605,13 +608,12 @@ def partner_verify(request):
         clear_customer_session(request=request)
         clear_designer_session(request=request)
         set_admin_session(request=request, admin=admin)
-        revoke_owner_dashboard(request=request)
         return JsonResponse(
             {
                 "status": "success",
-                "redirect": "/partner/login/",
+                "redirect": "/",
                 "session_type": "admin",
-                "next_step": "designer_select",
+                "next_step": "index",
                 "shop_id": admin.id,
                 "legacy_shop_id": get_legacy_admin_id(admin=admin),
                 "store_name": admin.store_name,
