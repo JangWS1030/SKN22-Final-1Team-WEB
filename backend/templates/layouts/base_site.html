@@ -45,7 +45,7 @@
               <div style="display: flex; align-items: center; gap: 12px; margin-left: 12px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="font-size: 13px; color: rgba(255,255,255,0.9); font-weight: 700;">
-                    {{ request.session.admin_store_name|default:request.session.admin_name|default:"MirrAI Partner" }}
+                    {% firstof request.session.admin_store_name request.session.admin_name "MirrAI Partner" %}
                   </span>
                   {% if request.session.designer_name %}
                     <span style="font-size: 12px; color: var(--accent-neon); font-weight: 600;">
@@ -67,7 +67,7 @@
                 <a href="{% url 'customer_logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px;">로그아웃</a>
               </div>
             {% else %}
-              <a href="{% url 'partner_index' %}?next=/partner/dashboard/" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: var(--accent-neon); color: var(--bg-dark); border: none;">로그인</a>
+              <a href="{% url 'partner_index' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: var(--accent-neon); color: var(--bg-dark); border: none;">로그인</a>
             {% endif %}
           </nav>
         </div>

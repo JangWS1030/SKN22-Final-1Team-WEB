@@ -51,6 +51,7 @@
   }
 
   .gender-btn {
+    position: relative;
     flex: 1;
     height: 46px;
     display: flex;
@@ -78,8 +79,18 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
+  .gender-btn:focus-within {
+    border-color: var(--bg-dark);
+    box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12);
+  }
+
   .gender-btn input {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
   }
 
   .action-row {
@@ -140,18 +151,18 @@
       <div class="input-grid">
         <div class="form-field">
           <label class="form-label">성함</label>
-          <input type="text" name="name" id="id_name" class="form-input" placeholder="성함 입력" required>
+          <input type="text" name="name" id="id_name" class="form-input" placeholder="성함 입력" tabindex="1" required>
         </div>
 
         <div class="form-field">
           <label class="form-label">성별</label>
           <div class="gender-toggle-group">
             <label class="gender-btn" id="label_male">
-              <input type="radio" name="gender" value="male">
+              <input type="radio" name="gender" value="male" tabindex="2">
               <span>남성</span>
             </label>
             <label class="gender-btn" id="label_female">
-              <input type="radio" name="gender" value="female">
+              <input type="radio" name="gender" value="female" tabindex="3">
               <span>여성</span>
             </label>
           </div>
@@ -161,17 +172,17 @@
       <div class="input-grid">
         <div class="form-field">
           <label class="form-label">연령</label>
-          <input type="number" name="age" id="id_age" class="form-input" placeholder="나이(숫자)" min="0" step="1" required>
+          <input type="text" name="age" id="id_age" class="form-input" placeholder="나이(숫자)" inputmode="numeric" pattern="[0-9]*" tabindex="4" required>
         </div>
         <div class="form-field">
           <label class="form-label">연락처</label>
-          <input type="tel" name="phone" id="id_phone" class="form-input" placeholder="010-0000-0000" required>
+          <input type="tel" name="phone" id="id_phone" class="form-input" placeholder="010-0000-0000" tabindex="5" required>
         </div>
       </div>
 
       <div class="agree-box">
         <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;" id="privacyLabel">
-          <input type="checkbox" id="privacyAgree" name="agree_privacy" style="margin-top: 3px; width: 16px; height: 16px;">
+          <input type="checkbox" id="privacyAgree" name="agree_privacy" tabindex="6" style="margin-top: 3px; width: 16px; height: 16px;">
           <span class="section-copy" style="font-size: 13px; line-height: 1.5; color: var(--text-primary);">
             <b>[필수]</b> AI 스타일 분석을 위한 데이터 수집 동의
           </span>
@@ -179,8 +190,8 @@
       </div>
 
       <div class="action-row">
-        <button type="submit" class="btn btn-primary">분석하기</button>
-        <a href="/" class="btn btn-outline">메인으로</a>
+        <button type="submit" class="btn btn-primary" tabindex="7">분석하기</button>
+        <a href="/" class="btn btn-outline" tabindex="8">메인으로</a>
       </div>
     </form>
 
@@ -258,6 +269,10 @@
         input.checked = true;
         syncGenderButtons();
       });
+    });
+
+    form.querySelectorAll('input[name="gender"]').forEach((input) => {
+      input.addEventListener('change', syncGenderButtons);
     });
 
     privacyAgree.addEventListener('pointerdown', toggleAgreement);
