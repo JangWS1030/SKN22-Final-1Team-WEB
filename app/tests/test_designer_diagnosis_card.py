@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.db import connection
@@ -89,6 +90,57 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         self.assertFalse(session_status["is_active"])
         self.assertFalse(session_status["can_write_designer_diagnosis"])
         self.assertEqual(session_status["customer_note_scope"], "client")
+
+    def test_legacy_customer_detail_defers_heavy_history_payload_by_default(self):
+        self._login_shop_session()
+
+        with patch(
+            "app.api.v1.admin_services.get_legacy_capture_history",
+            side_effect=AssertionError("capture history should not be fetched on initial detail render"),
+        ), patch(
+            "app.api.v1.admin_services.get_legacy_analysis_history",
+            side_effect=AssertionError("analysis history should not be fetched on initial detail render"),
+        ), patch(
+            "app.api.v1.admin_services.get_legacy_confirmed_selection_items",
+            side_effect=AssertionError("selection history should not be fetched on initial detail render"),
+        ):
+            response = self.client.get(f"/api/v1/customers/{self.client_id}/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["history"]["deferred"])
+        self.assertIn("history_url", payload["history"])
+        self.assertLessEqual(len(payload["face_analyses"]), 1)
+        self.assertLessEqual(len(payload["captures"]), 1)
+        self.assertEqual(payload["notes"], [])
+
+    def test_legacy_customer_history_endpoint_returns_full_history_payload(self):
+        self._login_shop_session()
+
+        response = self.client.get(f"/api/v1/customers/{self.client_id}/history/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["history"]["deferred"])
+        self.assertIn("timings_ms", payload["history"])
+        self.assertIn("counts", payload["history"])
+        self.assertIn("capture_history", payload)
+        self.assertIn("analysis_history", payload)
+        self.assertIn("style_selection_history", payload)
+        self.assertIn("chosen_recommendation_history", payload)
+        self.assertIn("notes", payload)
+
+    def test_legacy_customer_detail_can_include_history_when_requested(self):
+        self._login_shop_session()
+
+        response = self.client.get(
+            f"/api/v1/customers/{self.client_id}/?include_history=1&history_limit=5"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["history"]["deferred"])
+        self.assertLessEqual(len(payload["face_analyses"]), 5)
 
     def test_dashboard_and_customer_detail_session_status_match_for_active_client(self):
         self._login_shop_session()
