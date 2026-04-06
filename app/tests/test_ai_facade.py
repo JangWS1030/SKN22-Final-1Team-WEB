@@ -11,6 +11,7 @@ import main as internal_ai_main
 from app.services import ai_facade
 from app.services.ai_facade import (
     build_ai_runtime_diagnostic_snapshot,
+    build_model_connection_validation_snapshot,
     generate_recommendation_batch,
     get_ai_health,
     get_ai_runtime_config_snapshot,
@@ -494,3 +495,96 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
         self.assertIn("AI runtime diagnostics", output)
         self.assertIn("resolved_provider: service", output)
         self.assertIn("service_health_offline", output)
+
+
+    @patch("app.services.ai_facade.get_ai_runtime_config_snapshot")
+    @patch("app.services.ai_facade.get_ai_health")
+    def test_model_connection_validation_snapshot_reports_unstable_runpod(self, mock_health, mock_config):
+        mock_config.return_value = {
+            "configured_provider": "runpod",
+            "resolved_provider": "runpod",
+            "service_enabled": False,
+            "service_url_configured": False,
+            "service_token_configured": False,
+            "service_api_version": None,
+            "runpod_enabled": True,
+            "runpod_api_key_configured": True,
+            "runpod_endpoint_id_configured": True,
+        }
+        mock_health.side_effect = [
+            {"mode": "runpod", "status": "offline", "message": "timeout", "cached": False},
+            {"mode": "runpod", "status": "online", "message": "gpu-ok", "cached": False},
+            {"mode": "runpod", "status": "online", "message": "gpu-ok", "cached": False},
+        ]
+
+        payload = build_model_connection_validation_snapshot(attempts=3, use_cache=False)
+
+        self.assertEqual(payload["summary"]["overall_state"], "unstable")
+        self.assertEqual(payload["summary"]["face_analysis_mode"], "local_mock_fallback")
+        self.assertEqual(payload["summary"]["recommendation_mode"], "local_scoring_with_runpod_augmentation")
+        self.assertIn("face_analysis_uses_local_mock_fallback", payload["warnings"])
+        self.assertIn("runpod_health_flaky", payload["warnings"])
+
+    @patch("app.management.commands.diagnose_ai_runtime.build_model_connection_validation_snapshot")
+    def test_diagnose_ai_runtime_command_renders_probe_json(self, mock_snapshot):
+        stdout = io.StringIO()
+        mock_snapshot.return_value = {
+            "config": {
+                "configured_provider": "runpod",
+                "resolved_provider": "runpod",
+                "service_enabled": False,
+                "runpod_enabled": True,
+            },
+            "summary": {
+                "attempts": 3,
+                "overall_state": "unstable",
+                "online_count": 2,
+                "offline_count": 1,
+                "face_analysis_mode": "local_mock_fallback",
+                "recommendation_mode": "local_scoring_with_runpod_augmentation",
+            },
+            "probes": [
+                {"attempt": 1, "mode": "runpod", "status": "offline", "elapsed_ms": 5012, "message": "timeout"},
+                {"attempt": 2, "mode": "runpod", "status": "online", "elapsed_ms": 1034, "message": "gpu-ok"},
+            ],
+            "warnings": ["runpod_health_flaky"],
+        }
+
+        call_command("diagnose_ai_runtime", "--probe", "--json", stdout=stdout)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["summary"]["overall_state"], "unstable")
+        self.assertEqual(payload["probes"][0]["status"], "offline")
+
+    @patch("app.management.commands.diagnose_ai_runtime.build_model_connection_validation_snapshot")
+    def test_diagnose_ai_runtime_command_renders_probe_text(self, mock_snapshot):
+        stdout = io.StringIO()
+        mock_snapshot.return_value = {
+            "config": {
+                "configured_provider": "runpod",
+                "resolved_provider": "runpod",
+                "service_enabled": False,
+                "runpod_enabled": True,
+            },
+            "summary": {
+                "attempts": 3,
+                "overall_state": "unstable",
+                "online_count": 2,
+                "offline_count": 1,
+                "face_analysis_mode": "local_mock_fallback",
+                "recommendation_mode": "local_scoring_with_runpod_augmentation",
+            },
+            "probes": [
+                {"attempt": 1, "mode": "runpod", "status": "offline", "elapsed_ms": 5012, "message": "timeout"},
+                {"attempt": 2, "mode": "runpod", "status": "online", "elapsed_ms": 1034, "message": "gpu-ok"},
+            ],
+            "warnings": ["runpod_health_flaky"],
+        }
+
+        call_command("diagnose_ai_runtime", "--probe", stdout=stdout)
+
+        output = stdout.getvalue()
+        self.assertIn("AI model connectivity probe", output)
+        self.assertIn("overall_state: unstable", output)
+        self.assertIn("face_analysis_mode: local_mock_fallback", output)
+        self.assertIn("runpod_health_flaky", output)

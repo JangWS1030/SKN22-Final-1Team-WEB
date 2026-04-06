@@ -446,6 +446,91 @@ def build_ai_runtime_diagnostic_snapshot(*, use_cache: bool = True) -> dict:
     }
 
 
+def _face_analysis_runtime_mode(config: dict) -> str:
+    if config.get("service_enabled"):
+        return "service_remote"
+    return "local_mock_fallback"
+
+
+def _recommendation_runtime_mode(config: dict) -> str:
+    resolved_provider = config.get("resolved_provider")
+    if resolved_provider == "service":
+        return "service_remote"
+    if resolved_provider == "runpod":
+        return "local_scoring_with_runpod_augmentation"
+    return "local_scoring_fallback"
+
+
+def build_model_connection_validation_snapshot(*, attempts: int = 3, use_cache: bool = False) -> dict:
+    config = get_ai_runtime_config_snapshot()
+    attempts = max(1, int(attempts or 1))
+
+    probes: list[dict] = []
+    status_counts: dict[str, int] = {}
+    mode_counts: dict[str, int] = {}
+    online_count = 0
+    offline_count = 0
+
+    for index in range(attempts):
+        started_at = time.monotonic()
+        health = get_ai_health(use_cache=(use_cache and index == 0))
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+
+        status = str(health.get("status") or "unknown")
+        mode = str(health.get("mode") or "unknown")
+        if status == "online":
+            online_count += 1
+        if status == "offline":
+            offline_count += 1
+
+        status_counts[status] = status_counts.get(status, 0) + 1
+        mode_counts[mode] = mode_counts.get(mode, 0) + 1
+        probes.append(
+            {
+                "attempt": index + 1,
+                "mode": mode,
+                "status": status,
+                "message": health.get("message"),
+                "cached": bool(health.get("cached")),
+                "elapsed_ms": elapsed_ms,
+            }
+        )
+
+    overall_state = "healthy"
+    if online_count == 0 and offline_count == attempts:
+        overall_state = "offline"
+    elif online_count == 0:
+        overall_state = "fallback_only"
+    elif offline_count > 0:
+        overall_state = "unstable"
+
+    warnings: list[str] = []
+    if config.get("resolved_provider") == "runpod" and not config.get("service_enabled"):
+        warnings.append("face_analysis_uses_local_mock_fallback")
+    if config.get("resolved_provider") == "runpod" and online_count and offline_count:
+        warnings.append("runpod_health_flaky")
+    if config.get("resolved_provider") == "runpod" and online_count == 0:
+        warnings.append("runpod_health_unavailable")
+    if config.get("resolved_provider") == "local":
+        warnings.append("remote_model_not_active")
+
+    return {
+        "config": config,
+        "summary": {
+            "attempts": attempts,
+            "overall_state": overall_state,
+            "online_count": online_count,
+            "offline_count": offline_count,
+            "status_counts": status_counts,
+            "mode_counts": mode_counts,
+            "face_analysis_mode": _face_analysis_runtime_mode(config),
+            "recommendation_mode": _recommendation_runtime_mode(config),
+        },
+        "probes": probes,
+        "warnings": warnings,
+    }
+
+
 def get_ai_health(*, use_cache: bool = True) -> dict:
     cache_seconds = _health_cache_seconds()
     now = time.monotonic()
