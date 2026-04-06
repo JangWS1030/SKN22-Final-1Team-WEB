@@ -461,3 +461,36 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         self.assertIn("Reason counts:", output)
         self.assertIn("no_face_detected", output)
         self.assertIn("backend_failed_after_front_ready", output)
+
+    def test_capture_validation_accepts_equalized_single_face_fallback(self):
+        from app.services import capture_validation
+
+        image_file = self._build_test_upload_file()
+        image_bytes = image_file.read()
+
+        with patch.object(capture_validation, "MIN_SHARPNESS", 0), patch(
+            "app.services.capture_validation._detect_faces",
+            side_effect=[[], [(12, 18, 180, 190)]],
+        ):
+            result = capture_validation.validate_capture_image(processed_bytes=image_bytes)
+
+        self.assertTrue(result["is_valid"])
+        self.assertEqual(result["face_count"], 1)
+        self.assertEqual(result["reason_code"], "ok")
+
+    def test_capture_validation_accepts_stricter_single_face_resolution_for_multiple_faces(self):
+        from app.services import capture_validation
+
+        image_file = self._build_test_upload_file()
+        image_bytes = image_file.read()
+
+        with patch.object(capture_validation, "MIN_SHARPNESS", 0), patch(
+            "app.services.capture_validation._detect_faces",
+            side_effect=[[(10, 10, 180, 180), (28, 24, 170, 170)], [(14, 12, 182, 184)]],
+        ):
+            result = capture_validation.validate_capture_image(processed_bytes=image_bytes)
+
+        self.assertTrue(result["is_valid"])
+        self.assertEqual(result["face_count"], 1)
+        self.assertEqual(result["reason_code"], "ok")
+
