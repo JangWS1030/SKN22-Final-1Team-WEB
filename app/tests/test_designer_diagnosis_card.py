@@ -1,12 +1,16 @@
+import io
 import json
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import TestCase, override_settings
 
 from app.models_django import ClientProfileNote, DesignerDiagnosisCard
-from app.models_model_team import LegacyClient
+from PIL import Image
+
+from app.models_model_team import LegacyClient, LegacyClientAnalysis
 from app.services.model_team_bridge import (
     get_admin_by_phone,
     get_legacy_active_consultation_items,
@@ -64,6 +68,11 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
         session.save()
         return designer
+
+    def _build_test_upload_file(self, *, size=(400, 400), color=(128, 128, 128), name="capture.jpg"):
+        buffer = io.BytesIO()
+        Image.new("RGB", size, color).save(buffer, format="JPEG")
+        return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/jpeg")
 
     def test_legacy_customer_detail_exposes_session_status_and_empty_payloads(self):
         self._login_shop_session()
@@ -377,3 +386,78 @@ class DesignerDiagnosisCardFlowTests(TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row[0], "고객은 볼륨은 원하지만 끝선 손상 케어를 우선 원합니다.")
+
+    def test_capture_upload_failure_stores_diagnostics_and_reason_code(self):
+        self._login_shop_session()
+
+        response = self.client.post(
+            "/api/v1/capture/upload/",
+            data={
+                "customer_id": str(self.client_id),
+                "file": self._build_test_upload_file(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "needs_retake")
+        self.assertEqual(payload["reason_code"], "no_face_detected")
+
+        diagnostics = payload["privacy_snapshot"]["capture_validation"]["diagnostics"]
+        thresholds = payload["privacy_snapshot"]["capture_validation"]["thresholds"]
+        self.assertIn("brightness", diagnostics)
+        self.assertIn("sharpness", diagnostics)
+        self.assertIn("min_brightness", thresholds)
+        self.assertIn("min_sharpness", thresholds)
+
+        record = LegacyClientAnalysis.objects.get(analysis_id=payload["record_id"])
+        validation_snapshot = record.privacy_snapshot["capture_validation"]
+        self.assertEqual(validation_snapshot["reason_code"], "no_face_detected")
+        self.assertFalse(validation_snapshot["front_capture_context_present"])
+
+    def test_capture_upload_failure_marks_backend_failed_after_front_ready_when_context_sent(self):
+        self._login_shop_session()
+
+        response = self.client.post(
+            "/api/v1/capture/upload/",
+            data={
+                "customer_id": str(self.client_id),
+                "front_capture_context": json.dumps(
+                    {
+                        "all_valid": True,
+                        "message_key": "ready_to_capture",
+                        "checklist_summary": "5/5 pass",
+                    }
+                ),
+                "file": self._build_test_upload_file(name="capture-front-context.jpg"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        validation_snapshot = payload["privacy_snapshot"]["capture_validation"]
+        self.assertTrue(validation_snapshot["front_capture_context_present"])
+        self.assertTrue(validation_snapshot["front_all_valid"])
+        self.assertTrue(validation_snapshot["backend_failed_after_front_ready"])
+        self.assertEqual(validation_snapshot["front_message_key"], "ready_to_capture")
+
+    def test_capture_failure_analysis_command_summarizes_reason_codes(self):
+        self._login_shop_session()
+
+        self.client.post(
+            "/api/v1/capture/upload/",
+            data={
+                "customer_id": str(self.client_id),
+                "front_capture_context": json.dumps({"all_valid": True, "message_key": "ready_to_capture"}),
+                "file": self._build_test_upload_file(name="capture-summary.jpg"),
+            },
+        )
+
+        stdout = io.StringIO()
+        call_command("analyze_capture_upload_failures", "--limit", "20", stdout=stdout)
+        output = stdout.getvalue()
+
+        self.assertIn("Capture upload pattern summary", output)
+        self.assertIn("Reason counts:", output)
+        self.assertIn("no_face_detected", output)
+        self.assertIn("backend_failed_after_front_ready", output)
