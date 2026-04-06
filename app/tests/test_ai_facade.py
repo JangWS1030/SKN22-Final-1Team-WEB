@@ -1,15 +1,19 @@
+import io
 import json
 import os
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import SimpleTestCase
 from fastapi.testclient import TestClient
 
 import main as internal_ai_main
 from app.services import ai_facade
 from app.services.ai_facade import (
+    build_ai_runtime_diagnostic_snapshot,
     generate_recommendation_batch,
     get_ai_health,
+    get_ai_runtime_config_snapshot,
     simulate_face_analysis,
 )
 
@@ -390,3 +394,103 @@ class InternalAiServiceContractTests(SimpleTestCase):
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["data"]["items"][0]["style_id"], 7)
         self.assertEqual(payload["data"]["items"][0]["style_name"], "Hush Cut")
+
+
+class AiRuntimeDiagnosticsTests(SimpleTestCase):
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "",
+            "RUNPOD_ENDPOINT_ID": "",
+            "STABLE_DIFFUSION_ENDPOINT": "",
+            "RUNPOD_TRENDS_ENDPOINT_ID": "",
+        },
+        clear=False,
+    )
+    def test_runtime_config_snapshot_reports_missing_runpod_credentials(self):
+        payload = get_ai_runtime_config_snapshot()
+
+        self.assertEqual(payload["configured_provider"], "runpod")
+        self.assertFalse(payload["runpod_api_key_configured"])
+        self.assertFalse(payload["runpod_endpoint_id_configured"])
+        self.assertEqual(payload["resolved_provider"], "local")
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "service",
+            "MIRRAI_AI_SERVICE_URL": "",
+            "MIRRAI_INTERNAL_API_TOKEN": "",
+            "RUNPOD_API_KEY": "",
+            "RUNPOD_ENDPOINT_ID": "",
+        },
+        clear=False,
+    )
+    def test_runtime_diagnostic_snapshot_includes_configuration_warnings(self):
+        payload = build_ai_runtime_diagnostic_snapshot(use_cache=False)
+
+        self.assertIn("configured_service_but_url_missing", payload["warnings"])
+        self.assertIn("configured_service_but_token_missing", payload["warnings"])
+        self.assertEqual(payload["health"]["mode"], "local")
+
+    @patch("app.management.commands.diagnose_ai_runtime.build_ai_runtime_diagnostic_snapshot")
+    def test_diagnose_ai_runtime_command_renders_json(self, mock_snapshot):
+        stdout = io.StringIO()
+        mock_snapshot.return_value = {
+            "config": {
+                "configured_provider": "auto",
+                "resolved_provider": "runpod",
+                "service_enabled": False,
+                "service_url_configured": False,
+                "service_token_configured": False,
+                "service_api_version": None,
+                "runpod_enabled": True,
+                "runpod_api_key_configured": True,
+                "runpod_endpoint_id_configured": True,
+            },
+            "health": {
+                "mode": "runpod",
+                "status": "online",
+                "message": "gpu-ok",
+                "cached": False,
+            },
+            "warnings": [],
+        }
+
+        call_command("diagnose_ai_runtime", "--json", stdout=stdout)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["config"]["resolved_provider"], "runpod")
+        self.assertEqual(payload["health"]["status"], "online")
+
+    @patch("app.management.commands.diagnose_ai_runtime.build_ai_runtime_diagnostic_snapshot")
+    def test_diagnose_ai_runtime_command_renders_text(self, mock_snapshot):
+        stdout = io.StringIO()
+        mock_snapshot.return_value = {
+            "config": {
+                "configured_provider": "service",
+                "resolved_provider": "service",
+                "service_enabled": True,
+                "service_url_configured": True,
+                "service_token_configured": True,
+                "service_api_version": "2026-04-06",
+                "runpod_enabled": False,
+                "runpod_api_key_configured": False,
+                "runpod_endpoint_id_configured": False,
+            },
+            "health": {
+                "mode": "service",
+                "status": "online",
+                "message": "ai-microservice",
+                "cached": True,
+            },
+            "warnings": ["service_health_offline"],
+        }
+
+        call_command("diagnose_ai_runtime", stdout=stdout)
+
+        output = stdout.getvalue()
+        self.assertIn("AI runtime diagnostics", output)
+        self.assertIn("resolved_provider: service", output)
+        self.assertIn("service_health_offline", output)
