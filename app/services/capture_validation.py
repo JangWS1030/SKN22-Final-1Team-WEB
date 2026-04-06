@@ -15,6 +15,95 @@ MIN_SHARPNESS = 45.0
 _FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 
+def _detect_faces(
+    gray: np.ndarray,
+    *,
+    scale_factor: float,
+    min_neighbors: int,
+    min_size: tuple[int, int],
+):
+    return _FACE_CASCADE.detectMultiScale(
+        gray,
+        scaleFactor=scale_factor,
+        minNeighbors=min_neighbors,
+        minSize=min_size,
+    )
+
+
+def _iou(face_a, face_b) -> float:
+    ax, ay, aw, ah = [int(value) for value in face_a]
+    bx, by, bw, bh = [int(value) for value in face_b]
+    a_right = ax + aw
+    a_bottom = ay + ah
+    b_right = bx + bw
+    b_bottom = by + bh
+
+    inter_left = max(ax, bx)
+    inter_top = max(ay, by)
+    inter_right = min(a_right, b_right)
+    inter_bottom = min(a_bottom, b_bottom)
+    if inter_right <= inter_left or inter_bottom <= inter_top:
+        return 0.0
+
+    intersection = float((inter_right - inter_left) * (inter_bottom - inter_top))
+    union = float((aw * ah) + (bw * bh) - intersection)
+    if union <= 0:
+        return 0.0
+    return intersection / union
+
+
+def _dedupe_faces(faces, *, iou_threshold: float = 0.35) -> list[tuple[int, int, int, int]]:
+    candidates = [tuple(int(value) for value in face) for face in faces]
+    candidates.sort(key=lambda row: row[2] * row[3], reverse=True)
+    deduped: list[tuple[int, int, int, int]] = []
+    for face in candidates:
+        if any(_iou(face, existing) >= iou_threshold for existing in deduped):
+            continue
+        deduped.append(face)
+    return deduped
+
+
+def _select_candidate_faces(gray: np.ndarray) -> list[tuple[int, int, int, int]]:
+    primary_faces = _dedupe_faces(
+        _detect_faces(
+            gray,
+            scale_factor=1.1,
+            min_neighbors=5,
+            min_size=(80, 80),
+        )
+    )
+    if len(primary_faces) == 1:
+        return primary_faces
+
+    # Front already filters alignment and position aggressively, so backend
+    # gives Haar one more chance before forcing retake on count mismatches.
+    if len(primary_faces) == 0:
+        equalized = cv2.equalizeHist(gray)
+        relaxed_faces = _dedupe_faces(
+            _detect_faces(
+                equalized,
+                scale_factor=1.05,
+                min_neighbors=4,
+                min_size=(72, 72),
+            )
+        )
+        if len(relaxed_faces) == 1:
+            return relaxed_faces
+        return relaxed_faces
+
+    stricter_faces = _dedupe_faces(
+        _detect_faces(
+            gray,
+            scale_factor=1.12,
+            min_neighbors=7,
+            min_size=(96, 96),
+        )
+    )
+    if len(stricter_faces) == 1:
+        return stricter_faces
+    return primary_faces
+
+
 def _validation_thresholds() -> dict:
     return {
         "min_face_size_ratio": MIN_FACE_SIZE_RATIO,
@@ -164,12 +253,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
     brightness = float(gray.mean())
     sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     height, width = gray.shape[:2]
-    faces = _FACE_CASCADE.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(80, 80),
-    )
+    faces = _select_candidate_faces(gray)
     face_count = len(faces)
 
     if brightness < MIN_BRIGHTNESS:
