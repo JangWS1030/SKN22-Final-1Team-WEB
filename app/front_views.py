@@ -308,12 +308,16 @@ def client_recommendation_history_page(request):
 @never_cache
 def client_trend_page(request):
     client = get_session_customer(request=request)
-    if not client:
-        return redirect("customer_index")
+    back_url = reverse("index")
+
     return render(
         request,
         "customer/trend.html",
-        {"client": client, "popup_message": _popup_message_from_notice(request.GET.get("notice"))},
+        {
+            "client": client,
+            "back_url": back_url,
+            "popup_message": _popup_message_from_notice(request.GET.get("notice")),
+        },
     )
 
 
@@ -777,10 +781,6 @@ def enter_partner_dashboard(request):
 @never_cache
 def customer_logout_page(request):
     clear_customer_session(request=request)
-    if get_session_designer(request=request) is not None:
-        return redirect("partner_staff_dashboard")
-    if get_session_admin(request=request) is not None:
-        return redirect("partner_index")
     return redirect("index")
 
 
