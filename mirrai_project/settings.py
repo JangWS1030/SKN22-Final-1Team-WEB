@@ -103,6 +103,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware", # Static 서빙 최적화
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "app.navigation_middleware.CurrentFlowNavigationMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
