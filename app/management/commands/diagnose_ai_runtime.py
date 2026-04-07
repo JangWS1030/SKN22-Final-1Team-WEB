@@ -90,6 +90,29 @@ class Command(BaseCommand):
         self.stdout.write(f"- offline_count: {summary.get('offline_count')}")
         self.stdout.write(f"- face_analysis_mode: {summary.get('face_analysis_mode')}")
         self.stdout.write(f"- recommendation_mode: {summary.get('recommendation_mode')}")
+        self.stdout.write(f"- connectivity_state: {summary.get('connectivity_state')}")
+        self.stdout.write(f"- inference_status: {summary.get('inference_status')}")
+        self.stdout.write(f"- sync_contract_state: {summary.get('sync_contract_state')}")
+        self.stdout.write(f"- metadata_state: {summary.get('metadata_state')}")
+        self.stdout.write(f"- queue_state: {summary.get('queue_state')}")
+        self.stdout.write(f"- last_error_code: {summary.get('last_error_code') or '-'}")
+        self.stdout.write(f"- last_error_message: {summary.get('last_error_message') or '-'}")
+        self.stdout.write("")
+
+        inference_probe = payload.get("inference_probe") or {}
+        self.stdout.write("Inference Probe:")
+        if inference_probe:
+            self.stdout.write(f"- status: {inference_probe.get('status')}")
+            self.stdout.write(f"- inference_status: {inference_probe.get('inference_status')}")
+            self.stdout.write(f"- sync_contract_state: {inference_probe.get('sync_contract_state')}")
+            self.stdout.write(f"- metadata_state: {inference_probe.get('metadata_state')}")
+            self.stdout.write(f"- queue_state: {inference_probe.get('queue_state')}")
+            self.stdout.write(f"- elapsed_ms: {inference_probe.get('elapsed_ms')}")
+            self.stdout.write(f"- job_status: {inference_probe.get('job_status') or '-'}")
+            self.stdout.write(f"- last_error_code: {inference_probe.get('last_error_code') or '-'}")
+            self.stdout.write(f"- message: {inference_probe.get('message')}")
+        else:
+            self.stdout.write("- none")
         self.stdout.write("")
 
         self.stdout.write("Probes:")
