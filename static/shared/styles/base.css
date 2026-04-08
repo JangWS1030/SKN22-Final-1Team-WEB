@@ -126,11 +126,23 @@ a {
   letter-spacing: 0.1em;
 }
 
+.header-right {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 32px;
-  margin-left: auto; /* 모든 메뉴를 우측으로 밀어냄 */
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+  width: 100%;
 }
 
 .nav-link {
@@ -141,6 +153,69 @@ a {
 
 .nav-link:hover {
   color: var(--accent-neon);
+}
+
+.session-info-row {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.session-store {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-designer {
+  font-size: 12px;
+  color: var(--accent-neon);
+  font-weight: 600;
+}
+
+.session-customer-badge {
+  font-size: 12px;
+  color: white;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.customer-session-label {
+  text-transform: none;
+  color: white;
+}
+
+.session-btn {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.session-btn-muted {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.session-btn-login {
+  background: var(--accent-neon);
+  color: var(--bg-dark);
+  border: none;
 }
 
 /* Typography */
@@ -496,39 +571,195 @@ a {
 .is-hidden { display: none !important; }
 
 /* Responsive Media Queries */
-@media (max-width: 1024px) {
+@media (max-width: 1320px) {
+  .site-header {
+    height: auto;
+    padding: 14px 20px;
+  }
+
+  .site-header-container {
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    gap: 16px;
+  }
+
+  .brand {
+    min-height: 32px;
+    flex: 0 0 auto;
+  }
+
+  .brand-mark {
+    font-size: 25px;
+  }
+
+  .brand-sub {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  .header-right {
+    gap: 10px;
+  }
+
+  .nav-link {
+    font-size: 14px;
+  }
+
+  .session-info-row {
+    margin-top: 2px;
+  }
+
+  .session-meta {
+    gap: 6px 10px;
+  }
+
+  .session-store {
+    font-size: 13px;
+  }
+
+  .session-designer,
+  .session-customer-badge,
+  .customer-session-label {
+    font-size: 12px;
+  }
+
+  .session-btn {
+    height: 36px;
+    padding: 0 18px;
+    font-size: 12px;
+  }
+
+  .hero-section {
+    padding-top: 122px;
+  }
+
   .content-section {
     padding: 32px 20px 64px;
   }
 }
 
-@media (max-width: 768px) {
-  .hero-section {
-    padding: 32px 20px 64px;
-    border-bottom-left-radius: 24px;
-    border-bottom-right-radius: 24px;
+@media (max-width: 1100px) {
+  .site-header {
+    padding: 14px 18px;
   }
 
-  .site-header {
-    flex-direction: column;
-    gap: 24px;
-    margin-bottom: 32px;
-    text-align: center;
+  .site-header-container {
+    gap: 14px;
+  }
+
+  .brand-mark {
+    font-size: 23px;
+  }
+
+  .brand-sub {
+    font-size: 10px;
   }
 
   .nav-links {
-    gap: 16px;
-    flex-wrap: wrap;
-    justify-content: center;
+    gap: 10px 12px;
   }
 
   .nav-link {
     font-size: 13px;
   }
 
+  .session-store {
+    max-width: 220px;
+    font-size: 12px;
+  }
+
+  .session-designer,
+  .session-customer-badge,
+  .customer-session-label {
+    font-size: 11px;
+  }
+
+  .session-btn {
+    height: 34px;
+    padding: 0 14px;
+    font-size: 11px;
+  }
+
+  .hero-section {
+    padding-top: 126px;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-section {
+    padding: 134px 20px 64px;
+    border-bottom-left-radius: 24px;
+    border-bottom-right-radius: 24px;
+  }
+
+  .site-header {
+    padding: 14px 16px;
+  }
+
   .brand {
-    flex-direction: column;
-    gap: 4px;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .site-header-container {
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    row-gap: 0;
+  }
+
+  .header-right {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .nav-links {
+    width: auto;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+
+  .session-info-row {
+    justify-content: flex-end;
+  }
+
+  .session-meta {
+    width: auto;
+    justify-content: flex-end;
+    gap: 4px 8px;
+  }
+
+  .nav-link {
+    font-size: 12px;
+  }
+
+  .brand-mark {
+    font-size: 22px;
+  }
+
+  .brand-sub {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+
+  .session-store {
+    max-width: 190px;
+    font-size: 11px;
+  }
+
+  .session-designer,
+  .session-customer-badge,
+  .customer-session-label {
+    font-size: 10px;
+  }
+
+  .session-btn {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 10px;
   }
 
   .panel {
@@ -550,7 +781,7 @@ a {
 
 @media (max-width: 480px) {
   .hero-section {
-    padding: 24px 16px 48px;
+    padding: 150px 16px 48px;
   }
 
   .content-section {
@@ -558,8 +789,66 @@ a {
     margin-top: -24px;
   }
 
+  .site-header {
+    padding: 12px 14px;
+  }
+
+  .site-header-container {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  .header-right {
+    width: 100%;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .nav-links {
+    width: 100%;
+    gap: 6px 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .session-info-row {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .session-meta {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .brand-mark {
-    font-size: 24px;
+    font-size: 20px;
+  }
+
+  .brand-sub {
+    font-size: 8px;
+  }
+
+  .nav-link {
+    font-size: 11px;
+  }
+
+  .session-store {
+    max-width: 150px;
+    font-size: 10px;
+  }
+
+  .session-designer,
+  .session-customer-badge,
+  .customer-session-label {
+    font-size: 9px;
+  }
+
+  .session-btn {
+    height: 30px;
+    padding: 0 10px;
+    font-size: 9px;
   }
 
   .section-title {

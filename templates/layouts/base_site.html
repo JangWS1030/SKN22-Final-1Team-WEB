@@ -20,57 +20,73 @@
             <span class="brand-sub">{% block brand_sub %}premium styling{% endblock %}</span>
           </a>
 
-          <nav class="nav-links">
-            <a href="{% url 'index' %}" class="nav-link">메인</a>
-            {% if not request.session.admin_id %}
-              <a href="{% url 'partner_index' %}?next=/partner/designer-select/?next=/customer/" class="nav-link">분석 시작하기</a>
-            {% elif not request.session.designer_id %}
-              <a href="{% url 'partner_designer_select' %}?next=/customer/" class="nav-link">분석 시작하기</a>
-            {% else %}
-              <a href="{% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
-            {% endif %}
-
-            {% if request.session.admin_id %}
-              {% if request.session.designer_id %}
-                <a href="{% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+          <div class="header-right">
+            <nav class="nav-links">
+              <a href="{% url 'index' %}" class="nav-link">메인</a>
+              {% if request.session.customer_id %}
+                <a href="{% url 'customer_camera' %}" class="nav-link">분석 시작하기</a>
+              {% elif not request.session.admin_id %}
+                <a href="{% url 'partner_index' %}?next=/partner/designer-select/?next=/customer/" class="nav-link">분석 시작하기</a>
+              {% elif not request.session.designer_id %}
+                <a href="{% url 'partner_designer_select' %}?next=/customer/" class="nav-link">분석 시작하기</a>
               {% else %}
-                <a href="{% url 'partner_designer_select' %}" class="nav-link">디자이너</a>
-                <a href="{% url 'partner_dashboard' %}" class="nav-link">파트너 센터</a>
+                <a href="{% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
               {% endif %}
-            {% else %}
-              <a href="{% url 'partner_index' %}?next=/partner/designer-select/" class="nav-link">디자이너</a>
-              <a href="{% url 'partner_index' %}?next=/partner/dashboard/" class="nav-link">파트너 센터</a>
-            {% endif %}
+
+              {% if request.session.admin_id %}
+                {% if request.session.designer_id %}
+                  <a href="{% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+                {% else %}
+                  <a href="{% url 'partner_designer_select' %}" class="nav-link">디자이너</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link">파트너 센터</a>
+                {% endif %}
+              {% else %}
+                <a href="{% url 'partner_index' %}?next=/partner/designer-select/" class="nav-link">디자이너</a>
+                <a href="{% url 'partner_index' %}?next=/partner/dashboard/" class="nav-link">파트너 센터</a>
+              {% endif %}
+
+              {% if request.session.admin_store_name or request.session.admin_id %}
+                {% if request.session.designer_id %}
+                  <a href="{% url 'designer_logout' %}" data-designer-logout="true" data-after-logout="{% url 'partner_designer_select' %}" class="btn btn-dark session-btn session-btn-muted">{% if request.session.customer_name %}전체 로그아웃{% else %}로그아웃{% endif %}</a>
+                {% else %}
+                  <a href="{% url 'partner_logout' %}" class="btn btn-dark session-btn session-btn-muted">{% if request.session.customer_name %}전체 로그아웃{% else %}로그아웃{% endif %}</a>
+                {% endif %}
+                {% if request.session.customer_name %}
+                  <a href="{% url 'customer_logout' %}" class="btn btn-dark session-btn session-btn-muted">고객 종료</a>
+                {% endif %}
+              {% elif request.session.customer_name %}
+                <a href="{% url 'customer_logout' %}" class="btn btn-dark session-btn">로그아웃</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}" class="btn btn-dark session-btn session-btn-login">로그인</a>
+              {% endif %}
+            </nav>
 
             {% if request.session.admin_store_name or request.session.admin_id %}
-              <div style="display: flex; align-items: center; gap: 12px; margin-left: 12px;">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 13px; color: rgba(255,255,255,0.9); font-weight: 700;">
+              <div class="session-info-row">
+                <div class="session-meta">
+                  <span class="session-store">
                     {% firstof request.session.admin_store_name request.session.admin_name "MirrAI Partner" %}
                   </span>
                   {% if request.session.designer_name %}
-                    <span style="font-size: 12px; color: var(--accent-neon); font-weight: 600;">
+                    <span class="session-designer">
                       [{{ request.session.designer_name }} 디자이너]
                     </span>
                   {% endif %}
+                  {% if request.session.customer_name %}
+                    <span class="session-customer-badge">
+                      현재 고객: {{ request.session.customer_name }}
+                    </span>
+                  {% endif %}
                 </div>
-                {% if request.session.designer_id %}
-                  <a href="{% url 'designer_logout' %}" data-designer-logout="true" data-after-logout="{% url 'partner_designer_select' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">로그아웃</a>
-                {% else %}
-                  <a href="{% url 'partner_logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">로그아웃</a>
-                {% endif %}
               </div>
             {% elif request.session.customer_name %}
-              <div style="display: flex; align-items: center; gap: 12px; margin-left: 12px;">
-                <span class="brand-sub" style="text-transform: none; color: white;">
-                  <strong>{{ request.session.customer_name }}</strong>님
+              <div class="session-info-row session-info-row--customer">
+                <span class="brand-sub customer-session-label">
+                  현재 고객: <strong>{{ request.session.customer_name }}</strong>
                 </span>
-                <a href="{% url 'customer_logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px;">로그아웃</a>
               </div>
-            {% else %}
-              <a href="{% url 'partner_index' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: var(--accent-neon); color: var(--bg-dark); border: none;">로그인</a>
             {% endif %}
-          </nav>
+          </div>
         </div>
       </header>
 

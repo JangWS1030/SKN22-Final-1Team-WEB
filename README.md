@@ -12,7 +12,7 @@ AI 기반 퍼스널 헤어 스타일 분석 및 추천 솔루션, **MirrAI** 프
 - **고객(Customer) 여정**: 서비스 시작 ➡️ 개인정보 동의 ➡️ 취향 설문 ➡️ 페이스 스캔 ➡️ AI 분석 리포트 및 상담 예약
 - **파트너(Partner) 관리**: 실시간 고객 검색, 상세 분석 이력 관리, 매장 트렌드 시각화 리포트 제공
 - **시스템 관리(Admin)**: 데이터베이스 및 서비스 핵심 설정 제어 (Django Custom UI)
-- **디자인 컨셉**: 소프트 미니멀리즘 + 에디토리얼 레이아웃 기반의 **반응형 웹(PC/Mobile)** 최적화
+- **디자인 컨셉**: 소프트 미니멀리즘 + 에디토리얼 레이아웃 기반의 **반응형 웹(PC/Tablet/Mobile/Kiosk)** 최적화
 
 ---
 
@@ -45,6 +45,10 @@ MirrAI의 파트너 센터는 사용자의 인증 상태에 따라 서로 다른
 4. **세션 보안**:
    - 브라우저 종료 시 모든 세션이 자동 만료되도록 설정 가능합니다.
    - 로그아웃 시 `session.flush()`를 호출하여 서버와 클라이언트의 모든 세션 데이터를 완전 파기합니다.
+5. **메인/트렌드 전환 UX**:
+   - 로고 및 `메인` 이동은 세션을 유지한 채 현재 사용자 흐름에 맞는 메인 화면으로 복귀합니다.
+   - 고객 세션이 함께 존재할 경우 메인 화면에서는 고객 흐름이 우선 노출됩니다.
+   - 헤더에는 `현재 고객` 표시와 `고객 종료` 액션이 제공되어, 매장/디자이너 세션을 유지한 채 고객 세션만 종료할 수 있습니다.
 
 ---
 
@@ -61,6 +65,10 @@ MirrAI의 파트너 센터는 사용자의 인증 상태에 따라 서로 다른
   - 개인정보 보호를 위한 **휴대폰 번호 마스킹(`010-****-1234`)** 처리 적용.
   - 개인정보 수집 및 이용 동의 프로세스 강화 (#111).
 - **데이터 시각화**: Chart.js를 활용한 매장 내 인기 스타일 및 방문자 통계 분석 (#81).
+- **최신 헤어 트렌드 피드**:
+  - 최신 크롤링 결과 기반으로 **헤어스타일/헤어컬러 기사 5건**만 선별하여 카드형 UI로 제공
+  - 원문 이미지와 기사 링크를 직접 사용하며, `/api/v1/analysis/trend/latest/` API로 조회
+  - 고객/매장 관리자/디자이너 세션 모두 접근 가능하며, 태블릿/키오스크 환경에서 가로 스와이프 탐색 지원
 
 ---
 
@@ -121,12 +129,16 @@ python manage.py runserver
 # Windows 사용자의 경우 루트의 run_server.bat으로 자동 실행 가능
 ```
 
-### 4) 주간 트렌드 최신화 실행
+- `run_server.bat`는 `requirements` 확인, DB 마이그레이션, FastAPI(8001), Django(8000)를 순서대로 실행합니다.
+- `.env`의 `ENABLE_TREND_SCHEDULER=true` 인 경우 `run_server.bat` 실행 시 `python manage.py run_trend_scheduler`도 함께 시작됩니다.
+- 반대로 `python manage.py runserver`만 직접 실행하면 트렌드 스케줄러는 자동으로 시작되지 않습니다.
 
-금요일 08:00 스케줄러에서는 Django management command만 호출하면 됩니다.
+### 4) 최신 트렌드 데이터 갱신
+
+아래 명령은 **저장된 최신 5개만 조회하는 코드가 아니라**,
+트렌드 원본을 다시 수집한 뒤 정제까지 수행하는 **전체 갱신 파이프라인**입니다.
 
 ```bash
-cd backend
 python manage.py refresh_trends --mode runpod-pipeline
 python manage.py refresh_trends --mode runpod-archive --build-local
 python manage.py refresh_trends --mode runpod-archive --build-local --dry-run
@@ -139,11 +151,82 @@ python manage.py refresh_trends --mode runpod-archive --build-local --dry-run
 프로젝트 내부 스케줄러를 별도 프로세스로 띄우려면:
 
 ```bash
-cd backend
 python manage.py run_trend_scheduler
 ```
 
-운영 환경에 앱 인스턴스가 여러 대면 스케줄러는 한 인스턴스에만 켜야 중복 실행되지 않습니다.
+주의:
+
+- `.env`의 `ENABLE_TREND_SCHEDULER=true`는 **스케줄러 설정 활성화**만 의미합니다.
+- 실제 주기 실행을 하려면 `python manage.py run_trend_scheduler` 프로세스가 별도로 떠 있어야 합니다.
+- `run_server.bat`를 사용하는 로컬 환경에서는 위 값이 `true`일 때 스케줄러가 같이 실행되어, 설정된 요일/시간에 최신 데이터 갱신을 시도합니다.
+- 운영 환경에 앱 인스턴스가 여러 대면 스케줄러는 한 인스턴스에만 켜야 중복 실행되지 않습니다.
+
+### 5) 저장된 최신 5개만 조회하기
+
+트렌드 페이지(`/customer/trend/`)는 크롤링을 다시 돌리지 않고,
+이미 저장된 파일에서 **최신 5개만 골라서** 보여줍니다.
+
+- 조회 엔드포인트: `/api/v1/analysis/trend/latest/?limit=5`
+- API 구현: `app/api/v1/latest_trends.py`
+- 최신 5개 선별 로직: `app/trend_pipeline/latest_feed.py`
+- 우선 조회 파일: `data/rag/processed/trends/refined_trends.json`
+- fallback 조회 경로: `data/rag/raw/trends/*.json`
+
+즉 아래는 **전체 갱신 없음 / 읽기 전용 조회**입니다.
+
+```bash
+curl "http://localhost:8000/api/v1/analysis/trend/latest/?limit=5"
+```
+
+정리:
+
+- `refresh_trends` / `run_trend_scheduler` = 전체 크롤링 + 정제 + 후처리
+- `/api/v1/analysis/trend/latest/` = 저장된 데이터에서 최신 5개만 조회
+
+#### RunPod 최신 피드 우선 조회(선택)
+
+최신 트렌드 API는 아래 환경 변수가 켜져 있으면
+`RunPod -> 로컬 ChromaDB -> 로컬 JSON` 순서로 조회를 시도합니다.
+
+```env
+TREND_LATEST_REMOTE_ENABLED=true
+TREND_LATEST_RUNPOD_TIMEOUT=8
+TREND_LATEST_RUNPOD_POLL_INTERVAL=2
+```
+
+RunPod 핸들러는 아래 입력을 받아야 합니다.
+
+```json
+{
+  "input": {
+    "action": "latest_trends",
+    "limit": 5
+  }
+}
+```
+
+권장 응답 형태:
+
+```json
+{
+  "status": "ready",
+  "items": [
+    {
+      "title": "Golden-Hour Brunette",
+      "title_ko": "골든아워 브루넷",
+      "summary": "Warm brunette trend...",
+      "summary_ko": "따뜻한 브루넷 컬러 트렌드...",
+      "image_url": "https://...",
+      "article_url": "https://...",
+      "source": "Whowhatwear",
+      "published_at": "2026-03-29T08:00:00+00:00",
+      "crawled_at": "2026-04-07T00:46:17+00:00",
+      "category": "color_trend",
+      "keywords": ["브루넷", "브라운"]
+    }
+  ]
+}
+```
 
 ---
 
@@ -154,6 +237,7 @@ python manage.py run_trend_scheduler
 ### **1. 고객 서비스 (Customer Journey)**
 
 - **서비스 시작/로그인**: [http://localhost:8000/customer/](http://localhost:8000/customer/)
+- **최신 헤어 트렌드 페이지**: [http://localhost:8000/customer/trend/](http://localhost:8000/customer/trend/)
 - **스타일 취향 설문**: [http://localhost:8000/customer/survey/](http://localhost:8000/customer/survey/)
 - **페이스 정밀 스캔 (카메라)**: [http://localhost:8000/customer/camera/](http://localhost:8000/customer/camera/)
 - **AI 분석 결과 및 추천**: [http://localhost:8000/customer/recommendations/](http://localhost:8000/customer/recommendations/)
@@ -174,6 +258,7 @@ python manage.py run_trend_scheduler
 | `DEBUG`                           | 디버그 모드 여부          | 운영 환경 반드시 `False` |
 | `SUPABASE_URL`                    | API 주소                  | Supabase 연동 필수         |
 | `SUPABASE_USE_REMOTE_DB`          | 원격 DB 사용 여부         | Supabase 연동 시 `True`  |
+| `ENABLE_TREND_SCHEDULER`          | 트렌드 스케줄러 설정 활성화 | 별도 `run_trend_scheduler` 프로세스 필요 |
 | `SESSION_EXPIRE_AT_BROWSER_CLOSE` | 브라우저 종료 시 로그아웃 | 보안 설정 `True` 권장    |
 
 ---
@@ -223,6 +308,7 @@ python manage.py run_trend_scheduler
 - **로그아웃 상태**: `매장 로그인 페이지`로 이동 (로그인 후 디자이너 선택으로 자동 연결)
 - **매장 로그인만 완료**: `디자이너 선택 페이지`로 즉시 이동 (인증 후 분석 페이지로 자동 연결)
 - **모든 인증 완료**: `고객 분석 시작 페이지(/customer/)`로 즉시 이동
+- **메인 이동**: 로고 또는 `메인` 클릭 시 세션을 유지한 채 현재 활성 흐름에 맞는 메인 화면으로 복귀
 
 ### **2. 파트너 센터 메뉴 (Admin/Designer Flow)**
 
@@ -235,6 +321,13 @@ python manage.py run_trend_scheduler
   - **디자이너**: `디자이너 선택` 페이지로 직접 이동
   - **파트너 센터**: `통합 대시보드(/partner/dashboard/)`로 직접 이동
   - **특수 로직**: 디자이너 세션 상태에서 '파트너 센터' 클릭 시, **디자이너 세션만 선택적 파기** 후 관리자 대시보드로 전환 지원 (예정)
+
+### **3. 최신 트렌드 페이지 (Latest Trend Feed)**
+
+- `/customer/trend/`는 고객/매장 관리자/디자이너 세션에서 모두 접근 가능합니다.
+- 화면은 설명형 추천 UI 대신 **최신 크롤링 5건 전용 카드형 피드**로 동작합니다.
+- 카드에는 원문 이미지와 한국어 제목이 노출되며, 클릭 시 원문 기사로 이동합니다.
+- 헤어스타일/헤어컬러 중심 기사만 남기도록 별도 필터링 로직을 적용했습니다.
 
 ---
 
