@@ -72,11 +72,19 @@ def _runpod_health_timeout() -> tuple[int, int]:
 
 
 def _runpod_sync_timeout_seconds() -> int:
-    return max(15, int(os.environ.get("MIRRAI_RUNPOD_SYNC_TIMEOUT", "180")))
+    configured = os.environ.get("MIRRAI_RUNPOD_SYNC_TIMEOUT", "").strip() or "120"
+    return max(15, int(configured))
 
 
-def _runpod_poll_interval_seconds() -> float:
-    return max(0.5, float(os.environ.get("MIRRAI_RUNPOD_POLL_INTERVAL", "2.0")))
+def _runpod_poll_interval_seconds(*, elapsed_seconds: float) -> float:
+    configured = os.environ.get("MIRRAI_RUNPOD_POLL_INTERVAL", "").strip()
+    if configured:
+        return max(0.5, float(configured))
+    if elapsed_seconds < 10.0:
+        return 2.0
+    if elapsed_seconds < 30.0:
+        return 5.0
+    return 30.0
 
 
 def _service_timeout() -> int:
@@ -194,9 +202,10 @@ def _has_runpod_recommendation_metadata(payload: dict | None) -> bool:
     return False
 
 
-def _poll_runpod_job_output(*, job_id: str, timeout_seconds: int, poll_interval: float) -> dict:
+def _poll_runpod_job_output(*, job_id: str, timeout_seconds: int) -> dict:
     status_url = f"{_runpod_base_url()}/{_runpod_endpoint_id()}/status/{job_id}"
-    deadline = time.monotonic() + timeout_seconds
+    start = time.monotonic()
+    deadline = start + timeout_seconds
     while time.monotonic() < deadline:
         try:
             response = requests.get(
@@ -283,7 +292,12 @@ def _poll_runpod_job_output(*, job_id: str, timeout_seconds: int, poll_interval:
                 "output": None,
                 "last_error_code": f"RUNPOD_JOB_{status}",
             }
-        time.sleep(poll_interval)
+        elapsed = time.monotonic() - start
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        poll_interval = min(_runpod_poll_interval_seconds(elapsed_seconds=elapsed), remaining)
+        time.sleep(max(0.1, poll_interval))
     logger.warning("RunPod job %s did not complete within %s seconds", job_id, timeout_seconds)
     return {
         "state": "timeout",
@@ -328,6 +342,8 @@ def _runpod_request_details(input_payload: dict, *, sync: bool = True, timeout: 
             "job_status": None,
             "output": None,
             "last_error_code": "RUNPOD_REQUEST_FAILED",
+            "traceback_excerpt": None,
+            "remote_keys": [],
         }
     except ValueError:
         logger.warning("RunPod request returned invalid JSON")
@@ -338,9 +354,16 @@ def _runpod_request_details(input_payload: dict, *, sync: bool = True, timeout: 
             "job_status": None,
             "output": None,
             "last_error_code": "RUNPOD_INVALID_JSON",
+            "traceback_excerpt": None,
+            "remote_keys": [],
         }
 
     extracted = _extract_runpod_output(payload)
+    payload_summary = _runpod_payload_summary(extracted if isinstance(extracted, dict) else payload)
+    traceback_excerpt = _traceback_excerpt(
+        ((extracted or {}).get("traceback") if isinstance(extracted, dict) else None)
+        or ((payload or {}).get("traceback") if isinstance(payload, dict) else None)
+    )
     status = str((payload or {}).get("status") or "").upper()
     job_id = str((payload or {}).get("id") or "").strip() or None
     if sync and status in RUNPOD_QUEUE_STATUSES:
@@ -353,6 +376,8 @@ def _runpod_request_details(input_payload: dict, *, sync: bool = True, timeout: 
                 "job_status": status,
                 "output": extracted,
                 "last_error_code": "RUNPOD_QUEUE_WITHOUT_JOB_ID",
+                "traceback_excerpt": traceback_excerpt,
+                "remote_keys": payload_summary["remote_keys"],
             }
         timeout_seconds = max(
             _runpod_sync_timeout_seconds(),
@@ -361,7 +386,6 @@ def _runpod_request_details(input_payload: dict, *, sync: bool = True, timeout: 
         polled = _poll_runpod_job_output(
             job_id=job_id,
             timeout_seconds=timeout_seconds,
-            poll_interval=_runpod_poll_interval_seconds(),
         )
         polled.setdefault("job_id", job_id)
         polled.setdefault("job_status", status)
@@ -374,6 +398,8 @@ def _runpod_request_details(input_payload: dict, *, sync: bool = True, timeout: 
             "job_status": status,
             "output": extracted,
             "last_error_code": f"RUNPOD_REQUEST_{status}",
+            "traceback_excerpt": traceback_excerpt,
+            "remote_keys": payload_summary["remote_keys"],
         }
     return {
         "state": "completed",
@@ -382,14 +408,51 @@ def _runpod_request_details(input_payload: dict, *, sync: bool = True, timeout: 
         "job_status": status or None,
         "output": extracted,
         "last_error_code": None,
+        "traceback_excerpt": traceback_excerpt,
+        "remote_keys": payload_summary["remote_keys"],
     }
 
 
 def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, int] | None = None) -> dict | None:
     details = _runpod_request_details(input_payload, sync=sync, timeout=timeout)
     if details.get("state") != "completed":
-        logger.warning("Falling back after RunPod call failure: %s", details.get("message"))
+        logger.warning(
+            "Falling back after RunPod call failure: %s last_error_code=%s traceback_excerpt=%s remote_keys=%s",
+            details.get("message"),
+            details.get("last_error_code"),
+            details.get("traceback_excerpt"),
+            details.get("remote_keys"),
+        )
     return details.get("output")
+
+
+def _runpod_payload_summary(payload: dict | None) -> dict:
+    if not isinstance(payload, dict):
+        return {
+            "remote_keys": [],
+            "recommendation_count": 0,
+            "result_count": 0,
+            "has_traceback": False,
+        }
+
+    recommendations = payload.get("recommendations")
+    results = payload.get("results")
+    return {
+        "remote_keys": sorted(payload.keys()),
+        "recommendation_count": (len(recommendations) if isinstance(recommendations, list) else 0),
+        "result_count": (len(results) if isinstance(results, list) else 0),
+        "has_traceback": bool(payload.get("traceback")),
+    }
+
+
+def _traceback_excerpt(value: object, *, limit: int = 400) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
 
 
 def _service_headers(*, include_json_content_type: bool) -> dict[str, str]:
@@ -1289,6 +1352,7 @@ def _match_runpod_result(
 
 def _normalize_runpod_direct_items(
     *,
+    client_id: int | None,
     remote: dict,
     styles_by_id: dict[int, object] | None,
 ) -> list[dict] | None:
@@ -1307,6 +1371,8 @@ def _normalize_runpod_direct_items(
 
     normalized_items: list[dict] = []
     skipped_style_matches = 0
+    kept_style_matches = 0
+    dropped_candidates: list[dict] = []
     for index, recommendation_meta in enumerate(recommendations):
         if not isinstance(recommendation_meta, dict):
             continue
@@ -1318,6 +1384,15 @@ def _normalize_runpod_direct_items(
         )
         if style_id is None:
             skipped_style_matches += 1
+            dropped_candidates.append(
+                {
+                    "index": index,
+                    "raw_style_id": recommendation_meta.get("style_id"),
+                    "raw_style_name": recommendation_meta.get("style_name"),
+                    "matched_result_style_id": ((result.get("recommended_style") or {}).get("style_id") if isinstance(result, dict) else None),
+                    "matched_result_style_name": ((result.get("recommended_style") or {}).get("style_name") if isinstance(result, dict) else None),
+                }
+            )
             continue
         style_reference = _style_reference_for_id(style_id=style_id, styles_by_id=styles_by_id)
         image_reference, image_expires_at, image_transport = _extract_runpod_image_reference(
@@ -1421,29 +1496,50 @@ def _normalize_runpod_direct_items(
                 "rank": rank,
             }
         )
+        kept_style_matches += 1
 
     if not normalized_items:
         _emit_runpod_direct_primary_skipped("style_mapping_failed", recommendation_count=len(recommendations), result_count=len(results), skipped_style_matches=skipped_style_matches)
+        logger.warning(
+            "[runpod_direct_primary_mapping] client_id=%s normalized_count=0 recommendation_count=%s result_count=%s skipped_style_matches=%s dropped_candidates=%s",
+            client_id,
+            len(recommendations),
+            len(results),
+            skipped_style_matches,
+            dropped_candidates[:5],
+        )
         return None
 
     normalized_items.sort(key=lambda item: (int(item.get("rank") or 999), -float(item.get("match_score") or 0.0)))
+    logger.info(
+        "[runpod_direct_primary_mapping] client_id=%s normalized_count=%s recommendation_count=%s result_count=%s kept_style_matches=%s skipped_style_matches=%s kept_style_ids=%s dropped_candidates=%s",
+        client_id,
+        len(normalized_items),
+        len(recommendations),
+        len(results),
+        kept_style_matches,
+        skipped_style_matches,
+        [item.get("style_id") for item in normalized_items],
+        dropped_candidates[:5],
+    )
     return normalized_items[:5]
 
 
 def _build_runpod_image_payload(analysis_data: dict) -> dict | None:
-    image_url = str(analysis_data.get("image_url") or "").strip()
-    if image_url:
-        return {"image": image_url}
-
     image_base64 = str(analysis_data.get("image_base64") or "").strip()
     if image_base64:
         return {"image_base64": image_base64}
+
+    image_url = str(analysis_data.get("image_url") or "").strip()
+    if image_url.startswith(("http://", "https://", "data:image/")):
+        return {"image_url": image_url}
 
     return None
 
 
 def _generate_runpod_recommendation_batch(
     *,
+    client_id: int | None,
     survey_data: dict | None,
     analysis_data: dict,
     styles_by_id: dict[int, object] | None,
@@ -1474,7 +1570,16 @@ def _generate_runpod_recommendation_batch(
     if not remote:
         _emit_runpod_direct_primary_skipped("empty_runpod_response", payload_keys=sorted(runpod_payload.keys()))
         return None
-    normalized = _normalize_runpod_direct_items(remote=remote, styles_by_id=styles_by_id)
+    summary = _runpod_payload_summary(remote)
+    logger.info(
+        "[runpod_direct_primary_response] client_id=%s remote_keys=%s recommendation_count=%s result_count=%s has_traceback=%s",
+        client_id,
+        summary["remote_keys"],
+        summary["recommendation_count"],
+        summary["result_count"],
+        summary["has_traceback"],
+    )
+    normalized = _normalize_runpod_direct_items(client_id=client_id, remote=remote, styles_by_id=styles_by_id)
     if normalized is None:
         _emit_runpod_direct_primary_skipped("normalization_failed", remote_keys=sorted(remote.keys()), recommendation_count=len(remote.get("recommendations") or []) if isinstance(remote.get("recommendations"), list) else 0, result_count=len(remote.get("results") or []) if isinstance(remote.get("results"), list) else 0)
         return None
@@ -1591,6 +1696,7 @@ def generate_recommendation_batch(
     provider = _ai_provider()
     if provider == "runpod":
         direct_items = _generate_runpod_recommendation_batch(
+            client_id=client_id,
             survey_data=survey_data,
             analysis_data=analysis_data,
             styles_by_id=styles_by_id,

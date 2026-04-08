@@ -2938,7 +2938,7 @@ def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None =
         analysis_input_url = resolve_storage_reference(record.processed_path)
         analysis_input_base64 = (
             base64.b64encode(processed_bytes).decode("ascii")
-            if processed_bytes and not analysis_input_url
+            if processed_bytes
             else None
         )
         preserved_analysis_input_reference = (
