@@ -884,6 +884,127 @@ def _build_empty_response(*, source: str, message: str, next_action: str | None 
     return payload
 
 
+def _normalize_recommendation_item_contract(item: dict) -> dict:
+    normalized = dict(item)
+    sample_image_url = resolve_storage_reference(normalized.get("sample_image_url"))
+    simulation_image_url = resolve_storage_reference(
+        normalized.get("simulation_image_url") or normalized.get("synthetic_image_url")
+    )
+    display_image_url = simulation_image_url or sample_image_url
+    has_displayable_simulation = bool(simulation_image_url)
+
+    simulation_source = str(normalized.get("simulation_source") or "").strip()
+    if not simulation_source:
+        source = str(normalized.get("source") or "").strip()
+        if has_displayable_simulation:
+            simulation_source = "local_mock" if source == "local_mock" else "simulation"
+        elif sample_image_url:
+            simulation_source = "sample"
+        else:
+            simulation_source = "none"
+
+    simulation_status = str(normalized.get("simulation_status") or "").strip()
+    simulation_status_reason = str(normalized.get("simulation_status_reason") or "").strip()
+    if not simulation_status:
+        if has_displayable_simulation:
+            simulation_status = "ready"
+        elif sample_image_url:
+            simulation_status = "pending"
+        else:
+            simulation_status = "missing"
+    if not simulation_status_reason:
+        if has_displayable_simulation:
+            simulation_status_reason = (
+                "local_mock_reference"
+                if simulation_source == "local_mock"
+                else "primary_simulation_ready"
+            )
+        elif sample_image_url:
+            simulation_status_reason = "sample_reference_only"
+        else:
+            simulation_status_reason = "simulation_asset_missing"
+
+    normalized["sample_image_url"] = sample_image_url
+    normalized["simulation_image_url"] = simulation_image_url
+    normalized["synthetic_image_url"] = simulation_image_url
+    normalized["display_image_url"] = display_image_url
+    normalized["has_displayable_simulation"] = has_displayable_simulation
+    normalized["simulation_source"] = simulation_source
+    normalized["simulation_status"] = simulation_status
+    normalized["simulation_status_reason"] = simulation_status_reason
+    return normalized
+
+
+def _build_simulation_contract_meta(
+    *,
+    items: list[dict],
+    client: "Client | None" = None,
+    latest_capture=None,
+    latest_analysis=None,
+    default_reason: str | None = None,
+) -> dict:
+    item_count = len(items)
+    displayable_simulation_count = sum(1 for item in items if item.get("has_displayable_simulation"))
+    primary_simulation_count = sum(1 for item in items if item.get("simulation_source") == "simulation")
+    local_mock_count = sum(1 for item in items if item.get("simulation_source") == "local_mock")
+    sample_reference_count = sum(1 for item in items if item.get("simulation_source") == "sample")
+    has_displayable_simulation = displayable_simulation_count > 0
+    simulation_ready = item_count > 0 and displayable_simulation_count == item_count
+
+    if default_reason:
+        simulation_status_reason = default_reason
+    elif local_mock_count == item_count and item_count > 0:
+        simulation_status_reason = "local_mock_recommendations_ready"
+    elif simulation_ready:
+        simulation_status_reason = "all_simulations_ready"
+    elif has_displayable_simulation:
+        simulation_status_reason = "partial_simulations_ready"
+    elif sample_reference_count == item_count and item_count > 0:
+        simulation_status_reason = "sample_references_only"
+    else:
+        simulation_status_reason = "simulation_assets_missing"
+
+    if local_mock_count == item_count and item_count > 0:
+        display_gate_status = "mock_ready"
+    elif simulation_ready:
+        display_gate_status = "ready"
+    elif has_displayable_simulation:
+        display_gate_status = "partial_ready"
+    elif sample_reference_count == item_count and item_count > 0:
+        display_gate_status = "sample_only"
+    elif simulation_status_reason in {"capture_retry_required", "capture_data_not_ready", "analysis_input_incomplete"}:
+        display_gate_status = "awaiting_capture"
+    elif simulation_status_reason == "survey_or_capture_required":
+        display_gate_status = "awaiting_input"
+    else:
+        display_gate_status = "blocked"
+
+    return {
+        "response_kind": "recommendation_list",
+        "response_contract_version": 3,
+        "canonical_display_image_field": "display_image_url",
+        "primary_simulation_image_field": "simulation_image_url",
+        "legacy_simulation_image_field": "synthetic_image_url",
+        "display_gate_target_field": "simulation_image_url",
+        "display_gate_status": display_gate_status,
+        "display_gate_reason": simulation_status_reason,
+        "display_gate_ready_count": displayable_simulation_count,
+        "display_gate_target_count": item_count,
+        "recommendation_item_count": item_count,
+        "has_displayable_simulation": has_displayable_simulation,
+        "simulation_ready": simulation_ready,
+        "displayable_simulation_count": displayable_simulation_count,
+        "primary_simulation_count": primary_simulation_count,
+        "sample_reference_count": sample_reference_count,
+        "local_mock_count": local_mock_count,
+        "simulation_status_reason": simulation_status_reason,
+        "current_capture_id": getattr(latest_capture, "id", None) or getattr(latest_capture, "analysis_id", None),
+        "current_analysis_id": getattr(latest_analysis, "id", None) or getattr(latest_analysis, "analysis_id", None),
+        "client_id": (client.id if client is not None else None),
+        "legacy_client_id": (get_legacy_client_id(client=client) if client is not None else None),
+    }
+
+
 def serialize_capture_status(record: "CaptureRecord") -> dict:
     privacy_snapshot = record.privacy_snapshot or {}
     payload = {
@@ -1118,7 +1239,7 @@ def get_former_recommendations(client: "Client") -> dict:
     if not legacy_items:
         return _build_empty_response(
             source="former_recommendations",
-            message="No previous recommendation history is available yet.",
+            message="아직 과거의 추천 내역이 없습니다.",
             next_actions=["trend", "capture"],
         )
     return {
@@ -1549,6 +1670,44 @@ def build_recommendation_diagnostic_snapshot(client: "Client") -> dict:
 
 
 def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapshot: dict) -> dict:
+    items = payload.get("items") or []
+    normalized_items = [
+        _normalize_recommendation_item_contract(item)
+        for item in items
+        if isinstance(item, dict)
+    ]
+    if normalized_items or isinstance(items, list):
+        payload["items"] = normalized_items
+
+    capture_snapshot = snapshot.get("capture") or {}
+    analysis_snapshot = snapshot.get("analysis") or {}
+    default_reason = None
+    if payload.get("status") == "needs_input":
+        default_reason = "survey_or_capture_required"
+    elif payload.get("status") == "needs_capture":
+        default_reason = (
+            "capture_retry_required"
+            if "retake" in str(payload.get("message") or "").lower()
+            else "capture_data_not_ready"
+        )
+    elif payload.get("status") == "empty":
+        default_reason = "recommendations_not_ready"
+
+    payload.update(
+        _build_simulation_contract_meta(
+            items=normalized_items,
+            client=client,
+            latest_capture=SimpleNamespace(
+                id=capture_snapshot.get("record_id"),
+                analysis_id=capture_snapshot.get("record_id"),
+            ) if capture_snapshot.get("record_id") else None,
+            latest_analysis=SimpleNamespace(
+                id=analysis_snapshot.get("analysis_id"),
+                analysis_id=analysis_snapshot.get("analysis_id"),
+            ) if analysis_snapshot.get("analysis_id") else None,
+            default_reason=default_reason,
+        )
+    )
     predicted = snapshot.get("predicted_response") or {}
     next_actions = payload.get("next_actions")
     if not next_actions and payload.get("next_action"):
