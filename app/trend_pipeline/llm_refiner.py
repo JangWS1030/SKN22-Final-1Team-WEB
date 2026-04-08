@@ -125,6 +125,11 @@ class LLMRefiner:
                             "search_text": result.get("search_text", ""),
                             "source": item.get("source", "Unknown"),
                             "year": str(item.get("year", "")),
+                            "article_title": item.get("article_title", ""),
+                            "article_url": item.get("article_url", ""),
+                            "image_url": item.get("image_url", ""),
+                            "published_at": item.get("published_at", ""),
+                            "crawled_at": item.get("crawled_at", ""),
                         }
                     )
                     print(f"   ✓ [채택] 카테고리: {result.get('category')} | 정규화: {result.get('canonical_name', '')}")

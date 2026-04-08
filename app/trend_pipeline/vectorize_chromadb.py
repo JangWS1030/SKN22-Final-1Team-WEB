@@ -39,6 +39,11 @@ def _normalize_refined_item(item: dict) -> dict:
     description = str(item.get("description", "")).strip()
     style_tags = _split_csv(item.get("hairstyle_text", ""))
     color_tags = _split_csv(item.get("color_text", ""))
+    article_title = str(item.get("article_title", "")).strip()
+    article_url = str(item.get("article_url", "")).strip()
+    image_url = str(item.get("image_url", "")).strip()
+    published_at = str(item.get("published_at", "")).strip()
+    crawled_at = str(item.get("crawled_at", "")).strip()
 
     category = "style_trend"
     if color_tags and not style_tags:
@@ -64,6 +69,11 @@ def _normalize_refined_item(item: dict) -> dict:
         "search_text": "\n".join(chunk for chunk in search_chunks if chunk),
         "source": item.get("source", ""),
         "year": str(item.get("year", "")),
+        "article_title": article_title,
+        "article_url": article_url,
+        "image_url": image_url,
+        "published_at": published_at,
+        "crawled_at": crawled_at,
     }
 
 
@@ -125,6 +135,11 @@ def build_collection() -> chromadb.api.models.Collection.Collection:
                     "summary": item.get("summary", ""),
                     "source": item.get("source", ""),
                     "year": item.get("year", ""),
+                    "article_title": item.get("article_title", ""),
+                    "article_url": item.get("article_url", ""),
+                    "image_url": item.get("image_url", ""),
+                    "published_at": item.get("published_at", ""),
+                    "crawled_at": item.get("crawled_at", ""),
                 }
             )
 
