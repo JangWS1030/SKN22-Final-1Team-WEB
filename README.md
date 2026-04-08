@@ -183,6 +183,51 @@ curl "http://localhost:8000/api/v1/analysis/trend/latest/?limit=5"
 - `refresh_trends` / `run_trend_scheduler` = 전체 크롤링 + 정제 + 후처리
 - `/api/v1/analysis/trend/latest/` = 저장된 데이터에서 최신 5개만 조회
 
+#### RunPod 최신 피드 우선 조회(선택)
+
+최신 트렌드 API는 아래 환경 변수가 켜져 있으면
+`RunPod -> 로컬 ChromaDB -> 로컬 JSON` 순서로 조회를 시도합니다.
+
+```env
+TREND_LATEST_REMOTE_ENABLED=true
+TREND_LATEST_RUNPOD_TIMEOUT=8
+TREND_LATEST_RUNPOD_POLL_INTERVAL=2
+```
+
+RunPod 핸들러는 아래 입력을 받아야 합니다.
+
+```json
+{
+  "input": {
+    "action": "latest_trends",
+    "limit": 5
+  }
+}
+```
+
+권장 응답 형태:
+
+```json
+{
+  "status": "ready",
+  "items": [
+    {
+      "title": "Golden-Hour Brunette",
+      "title_ko": "골든아워 브루넷",
+      "summary": "Warm brunette trend...",
+      "summary_ko": "따뜻한 브루넷 컬러 트렌드...",
+      "image_url": "https://...",
+      "article_url": "https://...",
+      "source": "Whowhatwear",
+      "published_at": "2026-03-29T08:00:00+00:00",
+      "crawled_at": "2026-04-07T00:46:17+00:00",
+      "category": "color_trend",
+      "keywords": ["브루넷", "브라운"]
+    }
+  ]
+}
+```
+
 ---
 
 ## 🔗 주요 접속 경로 (Local Access Paths)

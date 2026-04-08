@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .paths import TREND_PROCESSED_DIR, TREND_RAW_DIR
+from .paths import CHROMA_TRENDS_DIR, TREND_PROCESSED_DIR, TREND_RAW_DIR
 
 try:
     from django.conf import settings as django_settings
@@ -19,6 +19,9 @@ except Exception:  # pragma: no cover - standalone script path
 REFINED_TRENDS_FILE = TREND_PROCESSED_DIR / "refined_trends.json"
 TRANSLATION_CACHE_FILE = TREND_PROCESSED_DIR / "latest_trend_translations.json"
 DEFAULT_TRANSLATION_MODEL = "gemini-2.5-flash"
+CHROMA_COLLECTION_NAME = "hair_trends"
+DEFAULT_RUNPOD_LATEST_TIMEOUT = 8
+DEFAULT_RUNPOD_LATEST_POLL_INTERVAL = 2.0
 
 STYLE_INCLUDE_KEYWORDS = (
     "hairstyle",
@@ -252,6 +255,161 @@ def _iter_raw_items() -> list[dict[str, Any]]:
     for path in sorted(TREND_RAW_DIR.glob("*.json")):
         items.extend(_load_json_list(path))
     return items
+
+
+def _iter_chroma_items() -> list[dict[str, Any]]:
+    if not CHROMA_TRENDS_DIR.exists():
+        return []
+
+    try:
+        import chromadb
+    except Exception:
+        return []
+
+    try:
+        client = chromadb.PersistentClient(path=str(CHROMA_TRENDS_DIR))
+        collection = client.get_collection(CHROMA_COLLECTION_NAME)
+        payload = collection.get(include=["metadatas"])
+    except Exception:
+        return []
+
+    metadatas = payload.get("metadatas") if isinstance(payload, dict) else None
+    if not isinstance(metadatas, list):
+        return []
+
+    items: list[dict[str, Any]] = []
+    has_feed_metadata = False
+    for metadata in metadatas:
+        if not isinstance(metadata, dict):
+            continue
+        row = dict(metadata)
+        if row.get("article_url") or row.get("image_url") or row.get("published_at") or row.get("crawled_at"):
+            has_feed_metadata = True
+        items.append(row)
+
+    return items if has_feed_metadata else []
+
+
+def _is_enabled(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _runpod_latest_enabled() -> bool:
+    return _is_enabled(
+        os.environ.get("TREND_LATEST_REMOTE_ENABLED")
+        or _get_django_setting("TREND_LATEST_REMOTE_ENABLED", "")
+    )
+
+
+def _runpod_latest_timeout() -> int:
+    raw = os.environ.get("TREND_LATEST_RUNPOD_TIMEOUT") or _get_django_setting("TREND_LATEST_RUNPOD_TIMEOUT", "")
+    try:
+        return max(3, int(str(raw).strip()))
+    except (TypeError, ValueError):
+        return DEFAULT_RUNPOD_LATEST_TIMEOUT
+
+
+def _runpod_latest_poll_interval() -> float:
+    raw = os.environ.get("TREND_LATEST_RUNPOD_POLL_INTERVAL") or _get_django_setting("TREND_LATEST_RUNPOD_POLL_INTERVAL", "")
+    try:
+        return max(0.5, float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return DEFAULT_RUNPOD_LATEST_POLL_INTERVAL
+
+
+def _normalize_remote_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+
+    title = str(item.get("title") or item.get("display_title") or item.get("article_title") or "").strip()
+    if not title:
+        return None
+
+    return {
+        "title": title,
+        "summary": _compact_summary(item.get("summary") or item.get("description") or ""),
+        "image_url": str(item.get("image_url") or "").strip() or None,
+        "article_url": str(item.get("article_url") or "").strip() or None,
+        "source": str(item.get("source") or "").strip() or "Unknown",
+        "published_at": str(item.get("published_at") or "").strip() or None,
+        "crawled_at": str(item.get("crawled_at") or "").strip() or None,
+        "category": str(item.get("category") or "").strip() or "trend",
+        "keywords": item.get("keywords") if isinstance(item.get("keywords"), list) else [],
+        "title_ko": str(item.get("title_ko") or "").strip(),
+        "summary_ko": str(item.get("summary_ko") or "").strip(),
+    }
+
+
+def _localize_items_preserving_existing(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    to_translate = [
+        {"title": item.get("title", ""), "summary": item.get("summary", ""), "article_url": item.get("article_url", "")}
+        for item in items
+        if not item.get("title_ko") or not item.get("summary_ko")
+    ]
+    translated_lookup: dict[str, dict[str, Any]] = {}
+    if to_translate:
+        translated_items = _attach_korean_fields(to_translate)
+        translated_lookup = {
+            _translation_cache_key(item): item
+            for item in translated_items
+        }
+
+    localized: list[dict[str, Any]] = []
+    for item in items:
+        key = _translation_cache_key(item)
+        translated = translated_lookup.get(key, {})
+        localized.append(
+            {
+                **item,
+                "title_ko": item.get("title_ko") or translated.get("title_ko") or item.get("title", ""),
+                "summary_ko": item.get("summary_ko") or translated.get("summary_ko") or item.get("summary", ""),
+            }
+        )
+    return localized
+
+
+def _load_runpod_latest_trends(*, limit: int) -> dict[str, Any] | None:
+    if not _runpod_latest_enabled():
+        return None
+
+    try:
+        from app.services.trend_refresh import _submit_runpod_job
+    except Exception:
+        return None
+
+    try:
+        payload = _submit_runpod_job(
+            request_input={"action": "latest_trends", "limit": max(1, min(int(limit), 5))},
+            endpoint_id=None,
+            api_key=None,
+            base_url=None,
+            sync=True,
+            wait=True,
+            timeout=_runpod_latest_timeout(),
+            poll_interval=_runpod_latest_poll_interval(),
+        )
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    items = payload.get("items")
+    if not isinstance(items, list):
+        data = payload.get("data")
+        if isinstance(data, dict):
+            items = data.get("items")
+    if not isinstance(items, list):
+        return None
+
+    normalized_items = [normalized for row in items if (normalized := _normalize_remote_item(row)) is not None]
+    localized_items = _localize_items_preserving_existing(normalized_items)
+    return {
+        "status": "ready",
+        "source": "runpod_latest_trends",
+        "count": len(localized_items),
+        "items": localized_items[: max(1, min(int(limit), 5))],
+    }
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -566,7 +724,18 @@ def _attach_korean_fields(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
-    raw_items = _load_json_list(REFINED_TRENDS_FILE) or _iter_raw_items()
+    remote_payload = _load_runpod_latest_trends(limit=limit)
+    if remote_payload is not None:
+        return remote_payload
+
+    source_label = "chromadb_trends"
+    raw_items = _iter_chroma_items()
+    if not raw_items:
+        source_label = "refined_trends_json"
+        raw_items = _load_json_list(REFINED_TRENDS_FILE)
+    if not raw_items:
+        source_label = "raw_trends_json"
+        raw_items = _iter_raw_items()
 
     normalized_items: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -604,7 +773,7 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
 
     return {
         "status": "ready",
-        "source": "latest_crawled_trends",
+        "source": source_label,
         "count": len(localized_items),
         "items": localized_items,
     }
