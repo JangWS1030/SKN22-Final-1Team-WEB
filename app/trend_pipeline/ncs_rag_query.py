@@ -7,6 +7,7 @@ from typing import Any
 
 import chromadb
 
+from .chroma_client import create_persistent_client
 from .paths import CHROMA_NCS_DIR, ensure_directories
 
 
@@ -27,7 +28,7 @@ def _tokenize(value: str) -> set[str]:
 @lru_cache(maxsize=1)
 def _get_collection():
     ensure_directories()
-    client = chromadb.PersistentClient(path=str(CHROMA_NCS_DIR))
+    client = create_persistent_client(CHROMA_NCS_DIR)
     return client.get_collection(COLLECTION_NAME)
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .chroma_client import create_persistent_client
 from .paths import CHROMA_TRENDS_DIR, TREND_PROCESSED_DIR, TREND_RAW_DIR
 
 try:
@@ -262,12 +263,7 @@ def _iter_chroma_items() -> list[dict[str, Any]]:
         return []
 
     try:
-        import chromadb
-    except Exception:
-        return []
-
-    try:
-        client = chromadb.PersistentClient(path=str(CHROMA_TRENDS_DIR))
+        client = create_persistent_client(CHROMA_TRENDS_DIR)
         collection = client.get_collection(CHROMA_COLLECTION_NAME)
         payload = collection.get(include=["metadatas"])
     except Exception:

@@ -108,15 +108,10 @@ front_feedback/from_front/
 front_feedback/to_backend/
 
 # Local troubleshooting samples
-tmp_capture_samples/
+tmp/
 
 # Local verification-only tests
-app/tests/test_chatbot_local_engine.py
-app/tests/test_chatbot_prompt_builder.py
-app/tests/test_chatbot_service.py
-app/tests/test_latest_feed.py
-app/tests/test_rag_safety.py
-app/tests/test_vectorize_chromadb.py
+app/tests/**
 
 # Keep selected tracked test/docs files visible
 !docs/

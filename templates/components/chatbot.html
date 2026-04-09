@@ -23,17 +23,18 @@
     </header>
 
     <div class="chat-messages" id="chatMessages">
-      <div class="message bot">
+      <div class="message bot" data-role="bot" data-message-text="안녕하세요. MirrAI 시술 가이드 AI입니다. 원하시는 시술 순서, 준비물, 주의사항을 질문해 보세요.">
         안녕하세요. MirrAI 시술 가이드 AI입니다.
         원하시는 시술 순서, 준비물, 주의사항을 질문해 보세요.
         <span class="time" id="chatStartTime"></span>
       </div>
 
-      <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
-        <button type="button" class="badge" onclick="sendQuickMessage('C컬 시술 순서를 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">C컬 시술 순서</button>
-        <button type="button" class="badge" onclick="sendQuickMessage('염색 전 주의사항을 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">염색 전 주의사항</button>
-        <button type="button" class="badge" onclick="sendQuickMessage('레이어드 컷 가이드를 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">레이어드 컷 가이드</button>
-      </div>
+      <div
+        id="chatbotQuickPrompts"
+        data-chatbot-quick-prompts
+        class="chatbot-quick-prompts"
+        style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;"
+      ></div>
     </div>
 
     <div id="typingIndicator" class="is-hidden" style="padding: 0 24px 12px; background: #f8fafc;">

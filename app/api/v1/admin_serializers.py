@@ -121,8 +121,17 @@ class CustomerProfileNoteUpsertSerializer(serializers.Serializer):
         return attrs
 
 
+class ChatbotHistoryItemSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=("user", "bot"), required=False, default="user")
+    content = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=600)
+
+
 class ChatbotAskSerializer(serializers.Serializer):
-    message = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    message = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=800)
+    conversation_history = ChatbotHistoryItemSerializer(many=True, required=False, allow_empty=True)
+
+    def validate_conversation_history(self, value):
+        return list(value or [])[-8:]
 
 
 class AdminTrendFilterSerializer(serializers.Serializer):

@@ -484,6 +484,49 @@ a {
   display: block;
 }
 
+.chatbot-quick-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 4px 0 2px;
+}
+
+.chatbot-quick-prompt {
+  appearance: none;
+  border: 1px solid rgba(245, 209, 13, 0.26);
+  background: linear-gradient(180deg, rgba(26, 26, 26, 0.98) 0%, rgba(17, 17, 17, 0.92) 100%);
+  color: rgba(255, 255, 255, 0.94);
+  min-height: 44px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(17, 17, 17, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.chatbot-quick-prompt:hover {
+  transform: translateY(-2px) scale(1.01);
+  border-color: rgba(245, 209, 13, 0.58);
+  background: linear-gradient(180deg, rgba(31, 31, 31, 0.98) 0%, rgba(15, 15, 15, 0.94) 100%);
+  color: var(--accent-neon);
+  box-shadow: 0 14px 28px rgba(17, 17, 17, 0.22), 0 0 0 1px rgba(245, 209, 13, 0.08);
+}
+
+.chatbot-quick-prompt:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.chatbot-quick-prompt:focus-visible {
+  outline: 3px solid rgba(245, 209, 13, 0.32);
+  outline-offset: 2px;
+}
+
 .chat-input-area {
   padding: 20px;
   background: white;
@@ -558,6 +601,7 @@ a {
     right: 16px;
     bottom: 100px;
   }
+
   .chatbot-trigger {
     right: 16px;
     bottom: 24px;

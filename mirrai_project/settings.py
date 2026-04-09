@@ -28,7 +28,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"
 
 if ENV_PATH.exists():
-    environ.Env.read_env(ENV_PATH)
+    environ.Env.read_env(ENV_PATH, overwrite=True)
 
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-mock-key-for-dev")
 DEBUG = env.bool("DEBUG", default=False)

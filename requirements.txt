@@ -17,6 +17,7 @@ whitenoise[brotli]>=6.6.0
 
 # --- 이미지 처리 및 AI ---
 Pillow>=10.2.0
+PyMuPDF>=1.27,<1.28
 opencv-python-headless>=4.8,<4.14
 numpy<2.0.0
 fastapi>=0.111,<0.116
