@@ -875,6 +875,14 @@ def simulate_face_analysis(*, image_url: str | None = None, image_bytes: bytes |
     }
 
 
+def _emit_runpod_direct_primary_skipped(reason: str, **details) -> None:
+    logger.warning(
+        "[runpod_direct_primary_skipped] reason=%s %s",
+        reason,
+        " ".join(f"{k}={v}" for k, v in details.items()),
+    )
+
+
 def _runpod_direct_outcome_snapshot(*, status: str, reason: str | None, invoked: bool) -> dict:
     return {
         "status": status,

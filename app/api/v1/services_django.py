@@ -1,3 +1,4 @@
+import base64
 import logging
 import uuid
 from collections import Counter
@@ -54,7 +55,11 @@ from app.services.model_team_bridge import (
     sync_model_team_rows,
     sync_model_team_runtime_state,
 )
-from app.services.storage_service import build_storage_snapshot, resolve_storage_reference
+from app.services.storage_service import (
+    build_storage_snapshot,
+    persist_simulation_image_reference,
+    resolve_storage_reference,
+)
 from app.trend_pipeline.style_collection import load_hairstyles
 
 if TYPE_CHECKING:
@@ -158,9 +163,9 @@ def _style_reference(style_id: int, *, styles_by_id: "dict[int, Style] | None" =
     profile = next((item for item in STYLE_CATALOG if item.style_id == style_id), None)
     sample_image_url = None
     if style and style.image_url:
-        sample_image_url = resolve_storage_reference(style.image_url)
+        sample_image_url = style.image_url
     elif profile:
-        sample_image_url = resolve_storage_reference(profile.fallback_sample_image_url)
+        sample_image_url = profile.fallback_sample_image_url
 
     return {
         "sample_image_url": sample_image_url,
@@ -487,17 +492,13 @@ def _normalize_runpod_face_shape(value: object) -> str | None:
     return canonical
 
 
-def persist_simulation_image_reference(reference: object) -> str | None:
-    return resolve_storage_reference(reference)
-
-
 def _has_displayable_image_reference(reference: object) -> bool:
     text = str(reference or "").strip()
     if not text:
         return False
-    if text.startswith(("http://", "https://", "data:image/")):
+    if text.startswith(("http://", "https://")):
         return True
-    if text.startswith("/media/simulations/"):
+    if text.startswith(("/media/simulations/", "simulations/")):
         return True
     return False
 
