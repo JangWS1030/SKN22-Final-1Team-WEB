@@ -27,10 +27,13 @@ from app.front_views import (
     logout_page,
     customer_logout_page,
     partner_verify,
+    partner_select_designer,
     partner_designer_list,
+    partner_designer_select_page,
     privacy_policy_page,
     terms_page,
 )
+from app.dashboard_gate_views import gated_partner_dashboard, gated_partner_staff_dashboard
 
 
 urlpatterns = [
@@ -56,14 +59,15 @@ urlpatterns = [
     path("partner/", admin_login_page, name="partner_index"),
     path("partner/login/", admin_login_page, name="partner_login"),
     path("partner/signup/", admin_signup_page, name="partner_signup"),
-    path("partner/designer-select/", lambda r: render(r, "admin/designer_select.html"), name="partner_designer_select"),
+    path("partner/designer-select/", partner_designer_select_page, name="partner_designer_select"),
     path("partner/designers/", designer_management_page, name="partner_designer_management"),
     path("partner/designers/new/", designer_signup_page, name="partner_designer_signup"),
     path("partner/designers/delete/", designer_delete_page, name="partner_designer_delete"),
     path("partner/verify/", partner_verify, name="partner_verify"),
+    path("partner/select-designer/", partner_select_designer, name="partner_select_designer"),
     path("partner/dashboard/enter/", enter_partner_dashboard, name="partner_dashboard_enter"),
-    path("partner/dashboard/", admin_dashboard_page, name="partner_dashboard"),
-    path("partner/staff/", designer_dashboard_page, name="partner_staff_dashboard"),
+    path("partner/dashboard/", gated_partner_dashboard, name="partner_dashboard"),
+    path("partner/staff/", gated_partner_staff_dashboard, name="partner_staff_dashboard"),
     path(
         "partner/customer-detail/<int:pk>/",
         lambda r, pk: render(

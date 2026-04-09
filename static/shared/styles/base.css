@@ -71,7 +71,7 @@ a {
 .content-section {
   flex: 1;
   padding: 40px 24px 80px;
-  margin-top: -20px; /* Reduced negative margin to match reduced hero padding */
+  margin-top: -20px;
   max-width: 1200px;
   margin-left: auto;
   margin-right: auto;
@@ -84,15 +84,14 @@ a {
   left: 0;
   right: 0;
   z-index: 1000;
-  background-color: #111111 !important; /* 명시적인 어두운 색상 강제 적용 */
+  background-color: #111111 !important;
   display: flex;
   align-items: center;
-  height: 85px; /* 헤더 높이 85px로 조정 */
+  height: 85px;
   padding: 0 24px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* 헤더 내부 컨텐츠 정렬 */
 .site-header-container {
   display: flex;
   align-items: center;
@@ -111,26 +110,38 @@ a {
   margin: 0;
   font-weight: 800;
   font-size: 28px;
-  color: white; /* 로고 색상 흰색 */
+  color: white;
 }
 
 .brand-mark span {
-  color: var(--accent-neon); /* AI 부분 포인트 컬러 */
+  color: var(--accent-neon);
 }
 
 .brand-sub {
-  color: rgba(255, 255, 255, 0.6); /* 하단 문구 반투명 흰색 */
+  color: rgba(255, 255, 255, 0.6);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
 
+.header-right {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 32px;
-  margin-left: auto; /* 모든 메뉴를 우측으로 밀어냄 */
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+  width: 100%;
 }
 
 .nav-link {
@@ -141,6 +152,93 @@ a {
 
 .nav-link:hover {
   color: var(--accent-neon);
+}
+
+.session-info-row {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.session-store {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-designer {
+  font-size: 13px;
+  color: var(--accent-neon);
+  font-weight: 600;
+}
+
+/* 헤더 버튼 공통 스타일 (강력한 교정) */
+.session-btn {
+  height: 32px !important;
+  padding: 0 14px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 30px !important;
+  flex: 0 0 auto;
+  border-radius: 999px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  transition: all 0.2s ease;
+  margin: 0 !important;
+}
+
+.session-btn:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  color: #fff !important;
+}
+
+.session-btn-login {
+  border-color: var(--accent-neon) !important;
+  color: var(--accent-neon) !important;
+}
+
+.session-btn-login:hover {
+  background: var(--accent-neon) !important;
+  color: var(--bg-dark) !important;
+}
+
+/* 현재 고객 뱃지 - 버튼과 완벽하게 동일하게 */
+.session-customer-badge {
+  height: 32px !important;
+  padding: 0 12px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 30px !important;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.customer-session-label {
+  text-transform: none;
+  color: white;
+  font-size: 13px;
 }
 
 /* Typography */
@@ -269,29 +367,6 @@ a {
   box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.6);
 }
 
-/* Specific Customer Login Input Panel */
-.customer-input-panel {
-  max-width: 580px !important;
-  margin: 0 auto !important;
-  padding: 24px !important;
-}
-
-.customer-input-panel .form-input {
-  height: 44px !important;
-  padding: 0 16px !important;
-  font-size: 14px !important;
-}
-
-.customer-input-panel .btn {
-  height: 48px !important;
-  font-size: 15px !important;
-}
-
-.customer-input-panel .form-label {
-  font-size: 13px !important;
-  margin-bottom: 6px !important;
-}
-
 /* --- Chatbot Widget Styles --- */
 .chatbot-trigger {
   position: fixed;
@@ -409,6 +484,49 @@ a {
   display: block;
 }
 
+.chatbot-quick-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 4px 0 2px;
+}
+
+.chatbot-quick-prompt {
+  appearance: none;
+  border: 1px solid rgba(245, 209, 13, 0.26);
+  background: linear-gradient(180deg, rgba(26, 26, 26, 0.98) 0%, rgba(17, 17, 17, 0.92) 100%);
+  color: rgba(255, 255, 255, 0.94);
+  min-height: 44px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(17, 17, 17, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.chatbot-quick-prompt:hover {
+  transform: translateY(-2px) scale(1.01);
+  border-color: rgba(245, 209, 13, 0.58);
+  background: linear-gradient(180deg, rgba(31, 31, 31, 0.98) 0%, rgba(15, 15, 15, 0.94) 100%);
+  color: var(--accent-neon);
+  box-shadow: 0 14px 28px rgba(17, 17, 17, 0.22), 0 0 0 1px rgba(245, 209, 13, 0.08);
+}
+
+.chatbot-quick-prompt:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.chatbot-quick-prompt:focus-visible {
+  outline: 3px solid rgba(245, 209, 13, 0.32);
+  outline-offset: 2px;
+}
+
 .chat-input-area {
   padding: 20px;
   background: white;
@@ -483,6 +601,7 @@ a {
     right: 16px;
     bottom: 100px;
   }
+
   .chatbot-trigger {
     right: 16px;
     bottom: 24px;
@@ -496,39 +615,99 @@ a {
 .is-hidden { display: none !important; }
 
 /* Responsive Media Queries */
-@media (max-width: 1024px) {
+@media (max-width: 1320px) {
+  .site-header {
+    height: auto;
+    padding: 14px 20px;
+  }
+
+  .site-header-container {
+    align-items: center;
+    gap: 16px;
+  }
+
+  .brand {
+    flex: 0 0 auto;
+  }
+
+  .brand-mark {
+    font-size: 25px;
+  }
+
+  .header-right {
+    gap: 10px;
+  }
+
+  .hero-section {
+    padding-top: 122px;
+  }
+
   .content-section {
     padding: 32px 20px 64px;
   }
 }
 
-@media (max-width: 768px) {
-  .hero-section {
-    padding: 32px 20px 64px;
-    border-bottom-left-radius: 24px;
-    border-bottom-right-radius: 24px;
-  }
-
+@media (max-width: 1100px) {
   .site-header {
-    flex-direction: column;
-    gap: 24px;
-    margin-bottom: 32px;
-    text-align: center;
+    padding: 14px 18px;
   }
 
-  .nav-links {
-    gap: 16px;
-    flex-wrap: wrap;
-    justify-content: center;
+  .brand-mark {
+    font-size: 23px;
   }
 
   .nav-link {
     font-size: 13px;
   }
 
-  .brand {
-    flex-direction: column;
-    gap: 4px;
+  .session-store {
+    max-width: 220px;
+    font-size: 12px;
+  }
+
+  .hero-section {
+    padding-top: 126px;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-section {
+    padding: 134px 20px 64px;
+    border-bottom-left-radius: 24px;
+    border-bottom-right-radius: 24px;
+  }
+
+  .site-header {
+    padding: 12px 16px;
+    height: auto;
+  }
+
+  .site-header-container {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .header-right {
+    width: 100%;
+    margin-top: 8px;
+    align-items: flex-end;
+  }
+
+  .nav-links {
+    gap: 12px;
+  }
+
+  .nav-link {
+    font-size: 12px;
+  }
+
+  .brand-mark {
+    font-size: 22px;
+  }
+
+  .session-store {
+    max-width: 190px;
+    font-size: 11px;
   }
 
   .panel {
@@ -550,7 +729,7 @@ a {
 
 @media (max-width: 480px) {
   .hero-section {
-    padding: 24px 16px 48px;
+    padding: 150px 16px 48px;
   }
 
   .content-section {
@@ -559,7 +738,11 @@ a {
   }
 
   .brand-mark {
-    font-size: 24px;
+    font-size: 20px;
+  }
+
+  .nav-link {
+    font-size: 11px;
   }
 
   .section-title {

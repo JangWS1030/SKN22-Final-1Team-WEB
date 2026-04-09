@@ -121,8 +121,17 @@ class CustomerProfileNoteUpsertSerializer(serializers.Serializer):
         return attrs
 
 
+class ChatbotHistoryItemSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=("user", "bot"), required=False, default="user")
+    content = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=600)
+
+
 class ChatbotAskSerializer(serializers.Serializer):
-    message = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    message = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=800)
+    conversation_history = ChatbotHistoryItemSerializer(many=True, required=False, allow_empty=True)
+
+    def validate_conversation_history(self, value):
+        return list(value or [])[-8:]
 
 
 class AdminTrendFilterSerializer(serializers.Serializer):
@@ -138,7 +147,7 @@ class AdminTrendFilterSerializer(serializers.Serializer):
 
 
 class DesignerSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
+    id = serializers.CharField()
     legacy_id = serializers.SerializerMethodField()
     name = serializers.CharField()
     phone = serializers.CharField(required=False, allow_null=True)
@@ -157,13 +166,15 @@ class DesignerSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         if isinstance(instance, dict) or not hasattr(instance, "_meta"):
+            # Ensure ID is treated as a string for consistency
+            raw_id = (
+                getattr(instance, "backend_designer_id", None)
+                or getattr(instance, "id", None)
+                if not isinstance(instance, dict)
+                else instance.get("backend_designer_id") or instance.get("id")
+            )
             return {
-                "id": (
-                    getattr(instance, "backend_designer_id", None)
-                    or getattr(instance, "id", None)
-                    if not isinstance(instance, dict)
-                    else instance.get("backend_designer_id") or instance.get("id")
-                ),
+                "id": str(raw_id) if raw_id is not None else None,
                 "legacy_id": self.get_legacy_id(instance),
                 "name": (
                     instance.get("name") if isinstance(instance, dict) else getattr(instance, "name", None)

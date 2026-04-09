@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -84,7 +85,53 @@ class UniversalCrawler:
         paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if len(p.get_text(strip=True)) > 30]
         return paragraphs
 
-    def parse_article(self, html: str, source_name: str) -> list[dict]:
+    def _extract_meta_content(self, soup: BeautifulSoup, *, property_name: str | None = None, meta_name: str | None = None) -> str:
+        if property_name:
+            meta = soup.find("meta", property=property_name)
+            if meta and meta.get("content"):
+                return str(meta.get("content")).strip()
+        if meta_name:
+            meta = soup.find("meta", attrs={"name": meta_name})
+            if meta and meta.get("content"):
+                return str(meta.get("content")).strip()
+        return ""
+
+    def _extract_published_at(self, soup: BeautifulSoup) -> str:
+        candidates = [
+            self._extract_meta_content(soup, property_name="article:published_time"),
+            self._extract_meta_content(soup, property_name="og:published_time"),
+            self._extract_meta_content(soup, meta_name="pubdate"),
+            self._extract_meta_content(soup, meta_name="publish-date"),
+            self._extract_meta_content(soup, meta_name="parsely-pub-date"),
+            self._extract_meta_content(soup, meta_name="date"),
+        ]
+        time_tag = soup.find("time")
+        if time_tag:
+            time_value = str(time_tag.get("datetime") or "").strip()
+            if time_value:
+                candidates.append(time_value)
+
+        for value in candidates:
+            if not value:
+                continue
+            normalized = value.replace("Z", "+00:00")
+            try:
+                return datetime.fromisoformat(normalized).isoformat()
+            except ValueError:
+                continue
+        return ""
+
+    def _extract_image_url(self, soup: BeautifulSoup, base_url: str) -> str:
+        candidates = [
+            self._extract_meta_content(soup, property_name="og:image"),
+            self._extract_meta_content(soup, meta_name="twitter:image"),
+        ]
+        for value in candidates:
+            if value:
+                return urljoin(base_url, value)
+        return ""
+
+    def parse_article(self, html: str, source_name: str, article_url: str, base_url: str) -> list[dict]:
         soup = BeautifulSoup(html, "html.parser")
         items: list[dict] = []
 
@@ -102,7 +149,10 @@ class UniversalCrawler:
             if title:
                 main_title = title.get_text(strip=True)
 
-        year = str(datetime.now().year)
+        published_at = self._extract_published_at(soup)
+        image_url = self._extract_image_url(soup, base_url)
+        crawled_at = datetime.now(timezone.utc).isoformat()
+        year = str(datetime.now(timezone.utc).year)
         headings = soup.find_all(["h2", "h3"])
 
         if len(headings) >= 2:
@@ -132,6 +182,11 @@ class UniversalCrawler:
                         "color_text": "",
                         "description": "\n".join(desc_paragraphs),
                         "source": source_name,
+                        "article_title": main_title or trend_name,
+                        "article_url": article_url,
+                        "image_url": image_url,
+                        "published_at": published_at,
+                        "crawled_at": crawled_at,
                     }
                 )
 
@@ -147,6 +202,11 @@ class UniversalCrawler:
                         "color_text": "",
                         "description": body,
                         "source": source_name,
+                        "article_title": main_title,
+                        "article_url": article_url,
+                        "image_url": image_url,
+                        "published_at": published_at,
+                        "crawled_at": crawled_at,
                     }
                 )
 
@@ -187,7 +247,7 @@ class UniversalCrawler:
                         href = anchor["href"]
                         if not self._is_article_link(href, keywords, base_url):
                             continue
-                        full_url = href if href.startswith("http") else base_url + href
+                        full_url = href if href.startswith("http") else urljoin(base_url, href)
                         links.add(full_url)
 
                     target_links = list(links)[:8]
@@ -205,7 +265,7 @@ class UniversalCrawler:
                             time.sleep(1)
 
                             article_html = page.content()
-                            results.extend(self.parse_article(article_html, name.capitalize()))
+                            results.extend(self.parse_article(article_html, name.capitalize(), act_url, base_url))
                         except Exception as exc:
                             print(f"  -> [{name}] 페이지 수집 에러 ({act_url}): {exc}")
 

@@ -11,32 +11,158 @@
 </div>
 {% endblock %}
 
+{% block extra_head %}
+<style>
+  .home-card-grid {
+    display: grid;
+    gap: 24px;
+    margin: 0 auto;
+  }
+
+  .home-card-grid--public {
+    max-width: 1080px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-card-grid--customer {
+    max-width: 1080px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-card-grid--partner {
+    max-width: 1440px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .home-card {
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 100%;
+  }
+
+  .home-card-number {
+    width: 48px;
+    height: 48px;
+    background: var(--bg-dark);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+
+  .home-card-number span {
+    color: var(--accent-neon);
+    font-size: 20px;
+    font-weight: 800;
+  }
+
+  @media (max-width: 1320px) {
+    .home-card-grid--partner {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      max-width: 1080px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .home-card-grid--public,
+    .home-card-grid--customer,
+    .home-card-grid--partner {
+      grid-template-columns: 1fr;
+      max-width: 100%;
+    }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px;">
-  <div class="panel">
-    <div style="width: 48px; height: 48px; background: var(--bg-dark); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">
-      <span style="color: var(--accent-neon); font-size: 20px; font-weight: 800;">01</span>
+{% if request.session.customer_id %}
+<div class="home-card-grid home-card-grid--customer">
+  <article class="panel home-card">
+    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">History</p>
+    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">과거의 추천 내역</h3>
+    <p class="section-copy" style="font-size: 14px;">해당 계정이 이전에 선택했던 스타일과 상담 이력을 먼저 확인할 수 있습니다.</p>
+    <a href="{% url 'customer_history' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">과거의 추천 내역 보기</a>
+  </article>
+
+  <article class="panel home-card">
+    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">Trend</p>
+    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">최신 헤어 트렌드</h3>
+    <p class="section-copy" style="font-size: 14px;">국내외 잡지사와 매거진에서 수집한 최신 헤어 트렌드를 한곳에서 살펴볼 수 있습니다. 지금 주목받는 스타일과 컬러 흐름을 빠르게 확인해 보세요.</p>
+    <a href="{% url 'customer_trend' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">트렌드 보기</a>
+  </article>
+
+  <article class="panel home-card">
+    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">New</p>
+    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">새로운 스타일 추천</h3>
+    <p class="section-copy" style="font-size: 14px;">사진 촬영부터 다시 시작해 새로운 추천 결과를 받아볼 수 있습니다.</p>
+    <a href="{% url 'customer_camera' %}" class="btn btn-primary" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">촬영 시작</a>
+  </article>
+</div>
+{% elif request.session.admin_id or request.session.designer_id %}
+<div class="home-card-grid home-card-grid--partner">
+  <article class="panel home-card">
+    <div class="home-card-number">
+      <span>01</span>
     </div>
     <h3 class="section-title">AI 정밀 분석</h3>
     <p class="section-copy">수천 명의 데이터셋을 학습한 AI가 당신의 두상과 모발 상태를 0.1mm 단위로 정교하게 분석합니다.</p>
-  </div>
-  
-  <div class="panel">
-    <div style="width: 48px; height: 48px; background: var(--bg-dark); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">
-      <span style="color: var(--accent-neon); font-size: 20px; font-weight: 800;">02</span>
+  </article>
+
+  <article class="panel home-card">
+    <div class="home-card-number">
+      <span>02</span>
     </div>
     <h3 class="section-title">개인화 추천</h3>
     <p class="section-copy">단순한 트렌드 추종이 아닌, 당신의 고유한 매력을 극대화할 수 있는 최적의 스타일을 제안합니다.</p>
-  </div>
-  
-  <div class="panel">
-    <div style="width: 48px; height: 48px; background: var(--bg-dark); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">
-      <span style="color: var(--accent-neon); font-size: 20px; font-weight: 800;">03</span>
+  </article>
+
+  <article class="panel home-card">
+    <div class="home-card-number">
+      <span>03</span>
     </div>
     <h3 class="section-title">스마트 히스토리</h3>
     <p class="section-copy">과거의 스타일 변화를 기록하고 관리하여 최상의 컨디션을 유지할 수 있도록 돕습니다.</p>
-  </div>
+  </article>
+
+  <article class="panel home-card">
+    <div class="home-card-number">
+      <span>04</span>
+    </div>
+    <h3 class="section-title">최신 헤어 트렌드</h3>
+    <p class="section-copy">국내외 잡지사와 매거진에서 수집한 최신 헤어 트렌드를 한곳에서 살펴볼 수 있습니다. 지금 주목받는 스타일과 컬러 흐름을 빠르게 확인해 보세요.</p>
+    <a href="{% url 'customer_trend' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">트렌드 보기</a>
+  </article>
 </div>
+{% else %}
+<div class="home-card-grid home-card-grid--public">
+  <article class="panel home-card">
+    <div class="home-card-number">
+      <span>01</span>
+    </div>
+    <h3 class="section-title">AI 정밀 분석</h3>
+    <p class="section-copy">수천 명의 데이터셋을 학습한 AI가 당신의 두상과 모발 상태를 0.1mm 단위로 정교하게 분석합니다.</p>
+  </article>
+
+  <article class="panel home-card">
+    <div class="home-card-number">
+      <span>02</span>
+    </div>
+    <h3 class="section-title">개인화 추천</h3>
+    <p class="section-copy">단순한 트렌드 추종이 아닌, 당신의 고유한 매력을 극대화할 수 있는 최적의 스타일을 제안합니다.</p>
+  </article>
+
+  <article class="panel home-card">
+    <div class="home-card-number">
+      <span>03</span>
+    </div>
+    <h3 class="section-title">스마트 히스토리</h3>
+    <p class="section-copy">과거의 스타일 변화를 기록하고 관리하여 최상의 컨디션을 유지할 수 있도록 돕습니다.</p>
+  </article>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block page_scripts %}

@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .latest_trends import LatestTrendView
 from .django_views import (
     CaptureStatusView,
     CaptureUploadView,
@@ -57,6 +58,7 @@ urlpatterns = [
     path('analysis/former-recommendations/', FormerRecommendationView.as_view(), name='former-recommendations'),
     path('analysis/recommendations/', RecommendationView.as_view(), name='recommendations'),
     path('analysis/trend/', TrendView.as_view(), name='trend'),
+    path('analysis/trend/latest/', LatestTrendView.as_view(), name='trend-latest'),
     path('analysis/retry-recommendations/', RetryRecommendationView.as_view(), name='retry-recommendations'),
     path('analysis/regenerate-simulation/', RegenerateSimulationView.as_view(), name='regenerate-simulation'),
     path('analysis/selection/', SelectionView.as_view(), name='selection'),
