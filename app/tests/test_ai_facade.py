@@ -320,6 +320,103 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
         self.assertEqual(snapshot["runtime"]["endpoint_id"], "stable-endpoint")
         self.assertIn("shaggy midi", snapshot["rag_context_excerpt"].lower())
 
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_skips_when_image_inputs_are_missing(self, mock_score_recommendations, mock_post):
+        mock_score_recommendations.return_value = [
+            {
+                "style_id": 201,
+                "style_name": "Side-Parted Lob",
+                "style_description": "Local fallback item.",
+                "keywords": ["lob"],
+                "match_score": 0.77,
+                "rank": 1,
+                "reasoning_snapshot": {"summary": "local summary"},
+            }
+        ]
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertFalse(mock_post.called)
+        self.assertEqual(items[0]["reasoning_snapshot"]["runpod_direct"]["status"], "skipped")
+        self.assertEqual(items[0]["reasoning_snapshot"]["runpod_direct"]["reason"], "missing_required_payload")
+        self.assertEqual(items[0]["reasoning_snapshot"]["runpod_direct"]["invoked"], False)
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_marks_failed_attempt_on_local_fallback(self, mock_score_recommendations, mock_post):
+        mock_score_recommendations.return_value = [
+            {
+                "style_id": 201,
+                "style_name": "Side-Parted Lob",
+                "style_description": "Local fallback item.",
+                "keywords": ["lob"],
+                "match_score": 0.77,
+                "rank": 1,
+                "reasoning_snapshot": {"summary": "local summary"},
+            }
+        ]
+        mock_post.return_value = _MockResponse(payload=None)
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "https://cdn.example.com/original.png",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["reasoning_snapshot"]["runpod_direct"]["status"], "failed")
+        self.assertEqual(items[0]["reasoning_snapshot"]["runpod_direct"]["reason"], "empty_runpod_response")
+        self.assertEqual(items[0]["reasoning_snapshot"]["runpod_direct"]["invoked"], True)
+
 
 class InternalAiServiceContractTests(SimpleTestCase):
     def setUp(self):

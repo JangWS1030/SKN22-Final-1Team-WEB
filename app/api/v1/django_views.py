@@ -611,6 +611,7 @@ class ConfirmView(CompatEnvelopeAPIView):
                     "client_id": {"type": "string"},
                     "recommendation_id": {"type": "integer"},
                     "style_id": {"type": "integer"},
+                    "selected_image_url": {"type": "string"},
                     "admin_id": {"type": "string"},
                     "source": {"type": "string", "example": "current_recommendations"},
                     "direct_consultation": {"type": "boolean", "default": False},
@@ -644,6 +645,7 @@ class ConfirmView(CompatEnvelopeAPIView):
                 client=client,
                 recommendation_id=_request_value(request, "recommendation_id"),
                 style_id=_request_value(request, "style_id"),
+                selected_image_url=request.data.get("selected_image_url"),
                 admin_id=request.data.get("admin_id"),
                 source=request.data.get("source", "current_recommendations"),
                 direct_consultation=bool(request.data.get("direct_consultation", False)),
@@ -662,6 +664,7 @@ class CancelView(CompatEnvelopeAPIView):
                 "properties": {
                     "client_id": {"type": "string"},
                     "recommendation_id": {"type": "integer"},
+                    "selected_image_url": {"type": "string"},
                     "source": {"type": "string", "example": "current_recommendations"},
                 },
                 "required": ["client_id"],
@@ -690,6 +693,7 @@ class CancelView(CompatEnvelopeAPIView):
             payload = cancel_style_selection(
                 client=client,
                 recommendation_id=_request_value(request, "recommendation_id"),
+                selected_image_url=request.data.get("selected_image_url"),
                 source=request.data.get("source", "current_recommendations"),
             )
         except ValueError as exc:

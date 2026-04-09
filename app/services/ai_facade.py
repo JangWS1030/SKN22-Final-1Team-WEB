@@ -609,6 +609,18 @@ def _build_preference_text(survey_data: dict | None) -> str | None:
     return text or None
 
 
+def _build_runpod_image_payload(analysis_data: dict) -> dict | None:
+    image_base64 = str(analysis_data.get("image_base64") or "").strip()
+    if image_base64:
+        return {"image_base64": image_base64}
+
+    image_url = str(analysis_data.get("image_url") or "").strip()
+    if image_url.startswith(("http://", "https://")):
+        return {"image_url": image_url}
+
+    return None
+
+
 def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     analysis_data = analysis_data or {}
     snapshot = analysis_data.get("landmark_snapshot") or {}
@@ -861,6 +873,116 @@ def simulate_face_analysis(*, image_url: str | None = None, image_bytes: bytes |
     }
 
 
+def _runpod_direct_outcome_snapshot(*, status: str, reason: str | None, invoked: bool) -> dict:
+    return {
+        "status": status,
+        "reason": reason,
+        "invoked": invoked,
+    }
+
+
+def _attach_runpod_direct_outcome(items: list[dict], outcome: dict | None) -> list[dict]:
+    if not outcome or not items:
+        return items
+
+    snapshot = _runpod_direct_outcome_snapshot(
+        status=str(outcome.get("status") or "unknown"),
+        reason=(str(outcome.get("reason")) if outcome.get("reason") else None),
+        invoked=bool(outcome.get("invoked")),
+    )
+    enriched_items: list[dict] = []
+    for item in items:
+        enriched = dict(item)
+        reasoning_snapshot = dict(enriched.get("reasoning_snapshot") or {})
+        reasoning_snapshot["runpod_direct"] = dict(snapshot)
+        enriched["reasoning_snapshot"] = reasoning_snapshot
+        enriched_items.append(enriched)
+    return enriched_items
+
+
+def _generate_runpod_recommendation_batch_details(
+    *,
+    client_id: int | None,
+    survey_data: dict | None,
+    analysis_data: dict,
+    styles_by_id: dict[int, object] | None,
+) -> dict:
+    image_payload = _build_runpod_image_payload(analysis_data)
+    face_ratios = _build_face_ratios(analysis_data)
+    if not image_payload or not face_ratios:
+        _emit_runpod_direct_primary_skipped(
+            "missing_required_payload",
+            has_image_payload=bool(image_payload),
+            has_face_ratios=bool(face_ratios),
+            has_image_url=bool(str(analysis_data.get("image_url") or "").strip()),
+            has_image_base64=bool(str(analysis_data.get("image_base64") or "").strip()),
+            has_landmark_snapshot=bool(analysis_data.get("landmark_snapshot")),
+        )
+        return {
+            "status": "skipped",
+            "reason": "missing_required_payload",
+            "invoked": False,
+            "items": None,
+        }
+
+    runpod_payload = {
+        **image_payload,
+        "face_ratios": face_ratios,
+        "top_k": 5,
+        "return_base64": True,
+    }
+    preference = _build_runpod_preference_payload(survey_data)
+    preference_text = _build_preference_text(survey_data)
+    if preference:
+        runpod_payload["preference"] = preference
+    if preference_text:
+        runpod_payload["preference_text"] = preference_text
+    color_text = (survey_data or {}).get("hair_colour")
+    if color_text:
+        runpod_payload["color_text"] = color_text
+
+    remote = _post_runpod(runpod_payload)
+    if not remote:
+        _emit_runpod_direct_primary_skipped("empty_runpod_response", payload_keys=sorted(runpod_payload.keys()))
+        return {
+            "status": "failed",
+            "reason": "empty_runpod_response",
+            "invoked": True,
+            "items": None,
+        }
+
+    summary = _runpod_payload_summary(remote)
+    logger.info(
+        "[runpod_direct_primary_response] client_id=%s remote_keys=%s recommendation_count=%s result_count=%s has_traceback=%s",
+        client_id,
+        summary["remote_keys"],
+        summary["recommendation_count"],
+        summary["result_count"],
+        summary["has_traceback"],
+    )
+    normalized = _normalize_runpod_direct_items(client_id=client_id, remote=remote, styles_by_id=styles_by_id)
+    if normalized is None:
+        _emit_runpod_direct_primary_skipped(
+            "normalization_failed",
+            remote_keys=sorted(remote.keys()),
+            recommendation_count=len(remote.get("recommendations") or []) if isinstance(remote.get("recommendations"), list) else 0,
+            result_count=len(remote.get("results") or []) if isinstance(remote.get("results"), list) else 0,
+        )
+        return {
+            "status": "failed",
+            "reason": "normalization_failed",
+            "invoked": True,
+            "items": None,
+        }
+
+    return {
+        "status": "completed",
+        "reason": None,
+        "invoked": True,
+        "items": normalized,
+    }
+
+
 def generate_recommendation_batch(
     *,
     client_id: int,
@@ -871,6 +993,23 @@ def generate_recommendation_batch(
 ) -> list[dict]:
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
     provider = _ai_provider()
+    runpod_direct_outcome = None
+    if provider == "runpod":
+        runpod_direct_outcome = _generate_runpod_recommendation_batch_details(
+            client_id=client_id,
+            survey_data=survey_data,
+            analysis_data=analysis_data,
+            styles_by_id=styles_by_id,
+        )
+        direct_items = runpod_direct_outcome.get("items")
+        if direct_items is not None:
+            logger.info(
+                "[ai_recommendations] provider=runpod remote_success=True client_id=%s item_count=%s direct_primary=True",
+                client_id,
+                len(direct_items),
+            )
+            return direct_items
+
     if provider == "service":
         remote = _request_service(
             "POST",
@@ -906,6 +1045,7 @@ def generate_recommendation_batch(
     )
     items = _augment_items_with_runpod(items=items, survey_data=survey_data, analysis_data=analysis_data)
     if provider == "runpod":
+        items = _attach_runpod_direct_outcome(items, runpod_direct_outcome)
         augmented_count = sum(
             1 for item in items if isinstance((item.get("reasoning_snapshot") or {}).get("runpod"), dict)
         )

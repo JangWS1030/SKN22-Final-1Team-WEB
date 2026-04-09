@@ -40,5 +40,5 @@ else:
 
     urlpatterns += [path("docs/", swagger_error)]
 
-if settings.DEBUG:
+if settings.DEBUG or not settings.SUPABASE_USE_REMOTE_STORAGE:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
