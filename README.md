@@ -116,7 +116,9 @@ Copy-Item .env.example .env
 
 - `ENABLE_TREND_SCHEDULER=true`
 - `TREND_LATEST_REMOTE_ENABLED=false`
-- `MIRRAI_MODEL_CHATBOT_PROVIDER=local`
+- `MIRRAI_MODEL_CHATBOT_PROVIDER=openai`
+- `MIRRAI_MODEL_CHATBOT_OPENAI_MODEL=gpt-4.1-mini`
+- `MIRRAI_MODEL_CHATBOT_API_KEY=<your OpenAI API key>`
 
 ### 3) 테스트 데이터 생성
 
@@ -193,9 +195,9 @@ python manage.py run_trend_scheduler
 
 현재 챗봇 라우팅 순서:
 
-- `local_chromadb`
-- 원격 챗봇이 설정되어 있으면 remote fallback
-- 둘 다 실패하면 dummy 응답
+- `openai_responses`
+- `chatbot_rag` 로컬 Chroma 근거 검색
+- OpenAI 호출이 실패하면 안내용 fallback 응답
 
 ---
 
@@ -238,8 +240,9 @@ crawl -> refine -> llm_refine -> vectorize -> rebuild_ncs -> rebuild_styles
 - 데이터셋: `app/data/chatbot/designer_support_dataset_v5_final_revised_optimized.json`
 - 프롬프트 템플릿: `app/data/chatbot/designer_instructor_persona.md`
 - 로컬 Chroma 저장소: `data/rag/stores/chromadb_chatbot/`
-- 응답 엔진: `app/services/chatbot_local_engine.py`
-- 프롬프트 빌더: `app/services/chatbot_prompt_builder.py`
+- 응답 엔진: `app/services/chatbot/service.py`
+- RAG 엔진: `app/services/chatbot/rag.py`
+- 프롬프트 빌더: `app/services/chatbot/prompt_builder.py`
 
 최근 정리 내용:
 
@@ -258,7 +261,7 @@ crawl -> refine -> llm_refine -> vectorize -> rebuild_ncs -> rebuild_styles
 
 ```bash
 python manage.py test app.tests.test_chatbot_prompt_builder
-python manage.py test app.tests.test_chatbot_local_engine
+python manage.py test app.tests.test_chatbot_rag
 python manage.py test app.tests.test_chatbot_service
 python manage.py test app.tests.test_latest_feed
 python manage.py test app.tests.test_vectorize_chromadb
@@ -270,7 +273,7 @@ python manage.py test app.tests.test_ai_facade
 ```bash
 python manage.py test ^
   app.tests.test_chatbot_prompt_builder ^
-  app.tests.test_chatbot_local_engine ^
+  app.tests.test_chatbot_rag ^
   app.tests.test_chatbot_service ^
   app.tests.test_latest_feed ^
   app.tests.test_vectorize_chromadb ^
@@ -322,7 +325,11 @@ python manage.py test ^
 - `MIRRAI_MODEL_CHATBOT_PROVIDER`
 - `MIRRAI_MODEL_CHATBOT_URL`
 - `MIRRAI_MODEL_CHATBOT_API_KEY`
+- `OPENAI_API_KEY` (fallback)
+- `MIRRAI_MODEL_CHATBOT_OPENAI_MODEL`
+- `MIRRAI_MODEL_CHATBOT_FALLBACK_OPENAI_MODEL`
 - `MIRRAI_MODEL_CHATBOT_TIMEOUT`
+- `MIRRAI_MODEL_CHATBOT_MAX_OUTPUT_TOKENS`
 - `MIRRAI_MODEL_CHATBOT_INCLUDE_SYSTEM_PROMPT`
 - `MIRRAI_MODEL_CHATBOT_LOCAL_TOP_K`
 - `MIRRAI_MODEL_CHATBOT_LOCAL_CHUNK_SIZE`

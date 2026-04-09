@@ -5,6 +5,12 @@
 (function () {
   'use strict';
 
+  const QUICK_PROMPTS = [
+    { label: 'C\uceec \uc2dc\uc220 \uc21c\uc11c', message: 'C\uceec \uc2dc\uc220 \uc21c\uc11c\ub97c \uc54c\ub824\uc918' },
+    { label: '\uc5fc\uc0c9 \uc804 \uc8fc\uc758\uc0ac\ud56d', message: '\uc5fc\uc0c9 \uc804 \uc8fc\uc758\uc0ac\ud56d\uc744 \uc54c\ub824\uc918' },
+    { label: '\ub808\uc774\uc5b4\ub4dc \ucef7 \uac00\uc774\ub4dc', message: '\ub808\uc774\uc5b4\ub4dc \ucef7 \uac00\uc774\ub4dc\ub97c \uc54c\ub824\uc918' },
+  ];
+
   function getElements() {
     return {
       chatbotPanel: document.getElementById('chatbotPanel'),
@@ -14,6 +20,7 @@
       chatInput: document.getElementById('chatInput'),
       typingIndicator: document.getElementById('typingIndicator'),
       chatStartTime: document.getElementById('chatStartTime'),
+      chatbotQuickPrompts: document.getElementById('chatbotQuickPrompts'),
     };
   }
 
@@ -23,11 +30,14 @@
       chatbotTrigger,
       chatForm,
       chatStartTime,
+      chatMessages,
     } = getElements();
 
-    if (!chatbotPanel || !chatbotTrigger || !chatForm) {
+    if (!chatbotPanel || !chatbotTrigger || !chatForm || !chatMessages) {
       return;
     }
+
+    ensureQuickPrompts();
 
     if (chatbotTrigger.dataset.chatbotBound === 'true') {
       return;
@@ -57,6 +67,19 @@
     }
   };
 
+  window.openMirraiChatbot = function () {
+    const { chatbotPanel, chatInput } = getElements();
+    if (!chatbotPanel) {
+      return;
+    }
+
+    chatbotPanel.classList.add('active');
+    if (chatInput) {
+      chatInput.focus();
+    }
+    scrollToBottom();
+  };
+
   window.sendQuickMessage = function (text) {
     const { chatInput } = getElements();
     if (!chatInput) {
@@ -67,9 +90,87 @@
     handleChatSubmit(new Event('submit'));
   };
 
-  async function handleChatSubmit(e) {
-    if (e) {
-      e.preventDefault();
+  function applyQuickPromptStyles(button) {
+    if (!button) {
+      return;
+    }
+
+    Object.assign(button.style, {
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      border: '1px solid rgba(245, 209, 13, 0.26)',
+      background: 'linear-gradient(180deg, rgba(26, 26, 26, 0.98) 0%, rgba(17, 17, 17, 0.92) 100%)',
+      color: 'rgba(255, 255, 255, 0.94)',
+      borderRadius: '999px',
+      padding: '11px 18px',
+      minHeight: '44px',
+      fontSize: '13px',
+      fontWeight: '700',
+      lineHeight: '1.2',
+      letterSpacing: '-0.01em',
+      boxShadow: '0 10px 22px rgba(17, 17, 17, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
+      cursor: 'pointer',
+      transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease',
+      whiteSpace: 'nowrap',
+    });
+
+    button.addEventListener('mouseenter', () => {
+      button.style.transform = 'translateY(-2px) scale(1.01)';
+      button.style.borderColor = 'rgba(245, 209, 13, 0.58)';
+      button.style.color = '#f5d10d';
+      button.style.background = 'linear-gradient(180deg, rgba(31, 31, 31, 0.98) 0%, rgba(15, 15, 15, 0.94) 100%)';
+      button.style.boxShadow = '0 14px 28px rgba(17, 17, 17, 0.22), 0 0 0 1px rgba(245, 209, 13, 0.08)';
+    });
+
+    button.addEventListener('mouseleave', () => {
+      button.style.transform = 'translateY(0) scale(1)';
+      button.style.borderColor = 'rgba(245, 209, 13, 0.26)';
+      button.style.color = 'rgba(255, 255, 255, 0.94)';
+      button.style.background = 'linear-gradient(180deg, rgba(26, 26, 26, 0.98) 0%, rgba(17, 17, 17, 0.92) 100%)';
+      button.style.boxShadow = '0 10px 22px rgba(17, 17, 17, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06)';
+    });
+
+    button.addEventListener('mousedown', () => {
+      button.style.transform = 'translateY(0) scale(0.99)';
+    });
+
+    button.addEventListener('mouseup', () => {
+      button.style.transform = 'translateY(-2px) scale(1.01)';
+    });
+  }
+
+  function ensureQuickPrompts() {
+    const { chatMessages, chatbotQuickPrompts } = getElements();
+    if (!chatMessages) {
+      return;
+    }
+
+    let container = chatbotQuickPrompts;
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'chatbotQuickPrompts';
+      container.dataset.chatbotQuickPrompts = 'true';
+      container.className = 'chatbot-quick-prompts';
+      chatMessages.appendChild(container);
+    }
+
+    container.innerHTML = '';
+    QUICK_PROMPTS.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chatbot-quick-prompt';
+      button.textContent = item.label;
+      applyQuickPromptStyles(button);
+      button.addEventListener('click', () => {
+        window.sendQuickMessage(item.message);
+      });
+      container.appendChild(button);
+    });
+  }
+
+  async function handleChatSubmit(event) {
+    if (event) {
+      event.preventDefault();
     }
 
     const { chatInput } = getElements();
@@ -82,6 +183,7 @@
       return;
     }
 
+    const conversationHistory = collectConversationHistory();
     addMessage(message, 'user');
     chatInput.value = '';
     showTyping(true);
@@ -94,23 +196,24 @@
           'Content-Type': 'application/json',
           'X-CSRFToken': getCookie('csrftoken'),
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, conversation_history: conversationHistory }),
       });
 
       if (!response.ok) {
         if (response.status === 404) {
-          throw new Error('챗봇 API가 아직 준비되지 않았습니다. 백엔드 구현 상태를 확인해 주세요.');
+          throw new Error('\ucc57\ubd07 API\uac00 \uc544\uc9c1 \uc900\ube44\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4. \ubc31\uc5d4\ub4dc \uc0c1\ud0dc\ub97c \ud655\uc778\ud574 \uc8fc\uc138\uc694.');
         }
-        throw new Error('서버 응답 오류가 발생했습니다.');
+        throw new Error('\uc11c\ubc84 \uc751\ub2f5 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.');
       }
 
       const data = await response.json();
+      const payload = normalizeChatbotResponse(data);
       showTyping(false);
-      addMessage(data.reply || data.message, 'bot');
+      addMessage(payload.reply || payload.message, 'bot');
     } catch (error) {
       console.error('Chatbot Error:', error);
       showTyping(false);
-      addMessage(error.message || '죄송합니다. 통신 중 오류가 발생했습니다.', 'bot');
+      addMessage(error.message || '\uc8c4\uc1a1\ud569\ub2c8\ub2e4. \ud1b5\uc2e0 \uc911 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.', 'bot');
     }
 
     scrollToBottom();
@@ -124,13 +227,52 @@
 
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${side}`;
-    const formattedText = String(text || '').replace(/\n/g, '<br>');
+    const rawText = String(text || '').trim();
+    const formattedText = rawText.replace(/\n/g, '<br>');
+    msgDiv.dataset.role = side === 'user' ? 'user' : 'bot';
+    msgDiv.dataset.messageText = rawText;
 
-    msgDiv.innerHTML = `
-      ${formattedText}
-      <span class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-    `;
+    const bodyDiv = document.createElement('div');
+    bodyDiv.className = 'message-body';
+    bodyDiv.innerHTML = formattedText;
+    msgDiv.appendChild(bodyDiv);
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'time';
+    timeSpan.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    msgDiv.appendChild(timeSpan);
     chatMessages.appendChild(msgDiv);
+  }
+
+  function normalizeChatbotResponse(data) {
+    if (!data || typeof data !== 'object') {
+      return {};
+    }
+
+    const nestedPayload = data.data || data.payload || data.result || null;
+    if (nestedPayload && typeof nestedPayload === 'object') {
+      return nestedPayload;
+    }
+    return data;
+  }
+
+  function collectConversationHistory() {
+    const { chatMessages } = getElements();
+    if (!chatMessages) {
+      return [];
+    }
+
+    return Array.from(chatMessages.querySelectorAll('.message'))
+      .map((node) => {
+        const content = String(node.dataset.messageText || '').trim();
+        if (!content) {
+          return null;
+        }
+        const role = node.dataset.role === 'user' ? 'user' : 'bot';
+        return { role, content };
+      })
+      .filter(Boolean)
+      .slice(-8);
   }
 
   function showTyping(show) {
@@ -139,11 +281,7 @@
       return;
     }
 
-    if (show) {
-      typingIndicator.classList.remove('is-hidden');
-    } else {
-      typingIndicator.classList.add('is-hidden');
-    }
+    typingIndicator.classList.toggle('is-hidden', !show);
   }
 
   function scrollToBottom() {
@@ -152,22 +290,15 @@
       return;
     }
 
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    requestAnimationFrame(() => {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
   }
 
   function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-      const cookies = document.cookie.split(';');
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i].trim();
-        if (cookie.substring(0, name.length + 1) === `${name}=`) {
-          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-          break;
-        }
-      }
-    }
-    return cookieValue;
+    const escapedName = name.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : '';
   }
 
   if (document.readyState === 'loading') {

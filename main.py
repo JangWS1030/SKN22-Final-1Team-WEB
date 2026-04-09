@@ -30,7 +30,7 @@ PROD_BASE_URL = "https://mirrai.shop"
 
 ENV_PATH = Path(__file__).resolve().parent / ".env"
 if ENV_PATH.exists():
-    environ.Env.read_env(ENV_PATH)
+    environ.Env.read_env(ENV_PATH, overwrite=True)
 
 
 def _get_bedrock_client():

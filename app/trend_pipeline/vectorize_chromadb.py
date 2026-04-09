@@ -8,6 +8,7 @@ from typing import Any
 
 import chromadb
 
+from .chroma_client import create_persistent_client
 from .paths import CHROMA_TRENDS_DIR, TREND_PROCESSED_DIR, ensure_directories
 from .rag_safety import sanitize_rag_items
 
@@ -385,7 +386,7 @@ def build_collection() -> chromadb.api.models.Collection.Collection:
     data = load_data()
     print(f"Loaded {len(data)} trend records.")
 
-    client = chromadb.PersistentClient(path=str(CHROMA_TRENDS_DIR))
+    client = create_persistent_client(CHROMA_TRENDS_DIR)
 
     try:
         client.delete_collection(COLLECTION_NAME)
@@ -453,7 +454,7 @@ def query_test(collection: chromadb.api.models.Collection.Collection, query_text
 
 def main() -> None:
     collection = build_collection()
-    client = chromadb.PersistentClient(path=str(CHROMA_TRENDS_DIR))
+    client = create_persistent_client(CHROMA_TRENDS_DIR)
     collection = client.get_collection(COLLECTION_NAME)
     query_test(collection, "2026 spring blonde hair trend")
     query_test(collection, "요즘 유행하는 단발 헤어스타일")

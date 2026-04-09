@@ -46,7 +46,7 @@ from app.api.v1.admin_services import (
 )
 from app.session_state import get_session_admin, get_session_designer, set_admin_session
 from app.services.ai_facade import get_ai_health
-from app.services.chatbot_service import build_admin_chatbot_reply, get_chatbot_backend_status
+from app.services.chatbot.service import build_admin_chatbot_reply, get_chatbot_backend_status
 from app.services.model_team_bridge import (
     get_admin_by_identifier,
     get_client_by_identifier,
@@ -773,6 +773,7 @@ class AdminChatbotAskView(CompatEnvelopeAPIView):
             message=serializer.validated_data["message"],
             admin_name=(designer.name if designer is not None else admin.name),
             store_name=admin.store_name,
+            conversation_history=serializer.validated_data.get("conversation_history") or [],
         )
         logger.info(
             "[admin_chatbot_reply] admin_id=%s designer_id=%s store_name=%s message=%s",

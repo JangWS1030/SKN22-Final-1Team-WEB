@@ -8,6 +8,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from .chroma_client import create_persistent_client
 from .paths import CHROMA_STYLES_DIR, STYLE_SEED_FILE, ensure_directories
 
 
@@ -197,11 +198,9 @@ def sync_seed_styles_to_db(styles: list[dict[str, Any]] | None = None) -> dict[s
 
 
 def build_style_collection(client=None):
-    import chromadb
-
     ensure_directories()
     if client is None:
-        client = chromadb.PersistentClient(path=str(CHROMA_STYLES_DIR))
+        client = create_persistent_client(CHROMA_STYLES_DIR)
 
     try:
         client.delete_collection("hairstyle_features")

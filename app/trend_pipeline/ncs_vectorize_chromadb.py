@@ -6,6 +6,7 @@ from typing import Any
 
 import chromadb
 
+from .chroma_client import create_persistent_client
 from .paths import CHROMA_NCS_DIR, NCS_PROCESSED_DIR, ensure_directories
 
 
@@ -30,7 +31,7 @@ def build_ncs_collection() -> chromadb.api.models.Collection.Collection:
     data = load_data()
     print(f"Loaded {len(data)} NCS records.")
 
-    client = chromadb.PersistentClient(path=str(CHROMA_NCS_DIR))
+    client = create_persistent_client(CHROMA_NCS_DIR)
     try:
         client.delete_collection(COLLECTION_NAME)
         print(f"Deleted existing collection '{COLLECTION_NAME}'.")
@@ -98,7 +99,7 @@ def query_test(collection: chromadb.api.models.Collection.Collection, query_text
 
 def main() -> None:
     collection = build_ncs_collection()
-    client = chromadb.PersistentClient(path=str(CHROMA_NCS_DIR))
+    client = create_persistent_client(CHROMA_NCS_DIR)
     collection = client.get_collection(COLLECTION_NAME)
     query_test(collection, "손상모 클리닉 시술 순서")
     query_test(collection, "단발 커트 기본 섹션")
