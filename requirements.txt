@@ -1,0 +1,4 @@
+-r requirements-trends.txt
+
+# Local-only tooling
+playwright>=1.49,<2.0

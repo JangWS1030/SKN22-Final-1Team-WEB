@@ -1,0 +1,218 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>{% block page_title %}MirrAI{% endblock %}</title>
+    
+    <!-- Favicon Toggling (Move comments to switch themes) -->
+    <!-- [OPTION 1] AI Theme -->
+    <link rel="icon" type="image/png" href="{% static 'branding/favicon_ai.png' %}" />
+    <link rel="apple-touch-icon" href="{% static 'branding/favicon_ai.png' %}" />
+    
+    <!-- [OPTION 2] Hair/Scissor Theme (Uncomment to use)
+    <link rel="icon" type="image/png" href="{% static 'branding/favicon_hair.png' %}" />
+    <link rel="apple-touch-icon" href="{% static 'branding/favicon_hair.png' %}" />
+    -->
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    />
+    <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}?v=20260410-01" />
+
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body data-has-session="{% if request.session.customer_id or request.session.admin_id or request.session.designer_id %}true{% else %}false{% endif %}">
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="site-header-container">
+          <a class="brand" href="{% url 'index' %}">
+            <h1 class="brand-mark">Mirr<span>AI</span></h1>
+            <span class="brand-sub">{% block brand_sub %}premium styling{% endblock %}</span>
+          </a>
+
+          <div class="header-right">
+            <nav class="nav-links">
+              <a href="{% url 'index' %}" class="nav-link">메인</a>
+              
+              {# 분석 시작하기 버튼 #}
+              {% if request.session.customer_id %}
+                <a href="{% url 'customer_camera' %}" class="nav-link">분석 시작하기</a>
+              {% elif request.session.designer_id %}
+                <a href="{% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
+              {% elif request.session.admin_id %}
+                <a href="{% url 'partner_designer_select' %}?next={% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}?next=/partner/designer-select/?next=/customer/" class="nav-link">분석 시작하기</a>
+              {% endif %}
+
+              {# 디자이너 버튼 #}
+              {% if request.session.customer_id %}
+                <a href="{% url 'partner_designer_select' %}?designer_id={{ request.session.designer_id }}&next={% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+              {% elif request.session.admin_id %}
+                <a href="{% url 'partner_designer_select' %}" class="nav-link">디자이너</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}?next={% url 'partner_designer_select' %}" class="nav-link">디자이너</a>
+              {% endif %}
+
+              {# 파트너 센터 버튼 #}
+              {% if request.session.admin_id %}
+                <a href="{% url 'partner_dashboard' %}" class="nav-link" data-prefetch-page="partner-dashboard">파트너 센터</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}?next={% url 'partner_dashboard' %}" class="nav-link" data-prefetch-page="partner-dashboard">파트너 센터</a>
+              {% endif %}
+
+              {# 로그인/로그아웃 버튼 #}
+              {% if request.session.customer_id %}
+                <a href="{% url 'logout' %}" class="btn btn-dark session-btn session-btn-muted">전체 로그아웃</a>
+                <a href="{% url 'customer_logout' %}" class="btn btn-dark session-btn session-btn-muted">고객종료</a>
+              {% elif request.session.designer_id %}
+                <a href="{% url 'designer_logout' %}" data-designer-logout="true" data-after-logout="{% url 'partner_designer_select' %}" class="btn btn-dark session-btn session-btn-muted">로그아웃</a>
+              {% elif request.session.admin_id %}
+                <a href="{% url 'partner_logout' %}" class="btn btn-dark session-btn session-btn-muted">로그아웃</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}" class="btn btn-dark session-btn session-btn-login">로그인</a>
+              {% endif %}
+            </nav>
+
+            {% if request.session.admin_store_name or request.session.admin_id %}
+              <div class="session-info-row">
+                <div class="session-meta">
+                  <span class="session-store">
+                    {% firstof request.session.admin_store_name request.session.admin_name "MirrAI Partner" %}
+                  </span>
+                  {% if request.session.designer_name %}
+                    <span class="session-designer">
+                      [{{ request.session.designer_name }} 디자이너]
+                    </span>
+                  {% endif %}
+                  {% if request.session.customer_name %}
+                    <span class="session-customer-badge">
+                      현재 고객: {{ request.session.customer_name }}
+                    </span>
+                  {% endif %}
+                </div>
+              </div>
+            {% elif request.session.customer_name %}
+              <div class="session-info-row session-info-row--customer">
+                <span class="brand-sub customer-session-label">
+                  현재 고객: <strong>{{ request.session.customer_name }}</strong>
+                </span>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </header>
+
+      <section class="hero-section">
+        {% block hero_content %}{% endblock %}
+      </section>
+
+      <section class="content-section">
+        {% block content %}{% endblock %}
+      </section>
+
+      {% include "components/footer.html" %}
+    </div>
+
+    {% if popup_message %}
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        alert('{{ popup_message|escapejs }}');
+      });
+    </script>
+    {% endif %}
+
+    <script>
+      window.addEventListener('pageshow', function (event) {
+        const restoredFromBackForward = event.persisted || (
+          window.performance &&
+          window.performance.getEntriesByType &&
+          window.performance.getEntriesByType('navigation')[0] &&
+          window.performance.getEntriesByType('navigation')[0].type === 'back_forward'
+        );
+        if (!restoredFromBackForward) {
+          return;
+        }
+        const hasSessionPage = document.body.dataset.hasSession === 'true';
+        if (hasSessionPage) {
+          window.location.reload();
+        }
+      });
+    </script>
+
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        const partnerPrefetchLinks = document.querySelectorAll('[data-prefetch-page="partner-dashboard"]');
+        if (partnerPrefetchLinks.length > 0) {
+          let prefetched = false;
+          const prefetchPartnerPage = function (href) {
+            if (prefetched || !href || !document.head) {
+              return;
+            }
+            prefetched = true;
+            const prefetchLink = document.createElement('link');
+            prefetchLink.rel = 'prefetch';
+            prefetchLink.as = 'document';
+            prefetchLink.href = href;
+            document.head.appendChild(prefetchLink);
+          };
+
+          partnerPrefetchLinks.forEach(function (linkEl) {
+            const triggerPrefetch = function () {
+              prefetchPartnerPage(linkEl.href);
+            };
+            linkEl.addEventListener('pointerenter', triggerPrefetch, { once: true });
+            linkEl.addEventListener('focus', triggerPrefetch, { once: true });
+          });
+        }
+
+        const designerLogoutLink = document.querySelector('[data-designer-logout="true"]');
+        if (!designerLogoutLink) {
+          return;
+        }
+
+        designerLogoutLink.addEventListener('click', async function (event) {
+          event.preventDefault();
+
+          if (designerLogoutLink.dataset.pending === 'true') {
+            return;
+          }
+
+          designerLogoutLink.dataset.pending = 'true';
+          designerLogoutLink.style.pointerEvents = 'none';
+
+          try {
+            const response = await fetch(designerLogoutLink.href, {
+              method: 'GET',
+              credentials: 'same-origin',
+              headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+              }
+            });
+
+            let redirectUrl = designerLogoutLink.dataset.afterLogout;
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const payload = await response.json();
+              redirectUrl = payload.redirect || redirectUrl;
+            }
+
+            window.location.replace(redirectUrl || designerLogoutLink.href);
+          } catch (error) {
+            window.location.replace(designerLogoutLink.href);
+          }
+        });
+      });
+    </script>
+
+    {% block page_scripts %}{% endblock %}
+  </body>
+</html>
