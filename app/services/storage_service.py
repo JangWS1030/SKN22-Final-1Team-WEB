@@ -301,8 +301,8 @@ def resolve_storage_reference(reference: str | None) -> str | None:
         signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
     except Exception as exc:
         logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
-        return reference
-    return _extract_signed_url(signed) or reference
+        return None
+    return _extract_signed_url(signed) or None
 
 
 def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str | None, str]:
@@ -317,7 +317,7 @@ def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str |
 
     client = get_supabase_client()
     if client is None:
-        return reference, "storage_client_unavailable"
+        return None, "storage_client_unavailable"
 
     bucket = client.storage.from_(settings.SUPABASE_BUCKET)
     if settings.SUPABASE_BUCKET_PUBLIC:
@@ -327,12 +327,12 @@ def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str |
         signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
     except Exception as exc:
         logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
-        return reference, "signed_url_failed"
+        return None, "signed_url_failed"
 
     resolved = _extract_signed_url(signed)
     if resolved:
         return resolved, "signed_url"
-    return reference, "signed_url_unresolved"
+    return None, "signed_url_unresolved"
 
 
 def build_storage_snapshot(
