@@ -12,6 +12,8 @@ on:
       - 'Dockerfile'
       - 'manage.py'
       - 'requirements.txt'
+      - 'requirements-deploy.txt'
+      - 'requirements-trends.txt'
       - 'Dockerrun.aws.json'
       - '.github/workflows/deploy.yml'
 

@@ -1,11 +1,28 @@
 import os
 from pathlib import Path
+
 import environ
+
+from mirrai_project.settings_helpers import (
+    build_allowed_hosts,
+    build_cache_settings,
+    resolve_active_database_url,
+    unique_values,
+)
+
 
 env = environ.Env(
     DEBUG=(bool, False),
     SUPABASE_USE_REMOTE_DB=(bool, False),
     SUPABASE_USE_REMOTE_STORAGE=(bool, False),
+    REDIS_USE_FOR_SESSIONS=(bool, True),
+    CACHE_DEFAULT_TIMEOUT=(int, 300),
+    PARTNER_DASHBOARD_CACHE_SECONDS=(int, 30),
+    PARTNER_LIST_CACHE_SECONDS=(int, 60),
+    PARTNER_DETAIL_CACHE_SECONDS=(int, 45),
+    PARTNER_HISTORY_CACHE_SECONDS=(int, 30),
+    PARTNER_LOOKUP_CACHE_SECONDS=(int, 45),
+    PARTNER_REPORT_CACHE_SECONDS=(int, 90),
     MIRRAI_PERSIST_CAPTURE_IMAGES=(bool, False),
     MIRRAI_LOCAL_MOCK_RESULTS=(bool, False),
     TREND_REFRESH_ENABLED=(bool, False),
@@ -24,7 +41,6 @@ env = environ.Env(
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# The project is now monolithic at the root, so BASE_DIR is the PROJECT_ROOT.
 ENV_PATH = BASE_DIR / ".env"
 
 if ENV_PATH.exists():
@@ -33,32 +49,59 @@ if ENV_PATH.exists():
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-mock-key-for-dev")
 DEBUG = env.bool("DEBUG", default=False)
 
-# ★ 수정: 배포 환경의 도메인 및 AWS Elastic Beanstalk 주소 허용
-ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[
-    "localhost", 
-    "127.0.0.1", 
+DEFAULT_ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
     "mirrai.shop",
-    "www.mirrai.shop", 
-    ".elasticbeanstalk.com"
-])
-
-# ★ 추가: CSRF 보안 설정 (배포 환경에서 폼 전송/로그인 에러 방지)
+    "www.mirrai.shop",
+    ".elasticbeanstalk.com",
+    ".elb.amazonaws.com",
+]
+ALLOWED_HOSTS = build_allowed_hosts(
+    default_hosts=DEFAULT_ALLOWED_HOSTS,
+    env_hosts=unique_values(
+        env.list("ALLOWED_HOSTS", default=[]),
+        [os.environ.get("EB_ENDPOINT_URL"), os.environ.get("HOSTNAME")],
+    ),
+)
 CSRF_TRUSTED_ORIGINS = [
     "https://mirrai.shop",
     "https://www.mirrai.shop",
-    "https://*.elasticbeanstalk.com"
+    "https://*.elasticbeanstalk.com",
 ]
 
+DATABASE_URL = env("DATABASE_URL", default="")
 SUPABASE_DB_URL = env("SUPABASE_DB_URL", default="")
-LOCAL_DATABASE_URL = env("LOCAL_DATABASE_URL", default="sqlite:///db.sqlite3")
+LOCAL_DATABASE_URL = env("LOCAL_DATABASE_URL", default=DATABASE_URL or "sqlite:///db.sqlite3")
 SUPABASE_USE_REMOTE_DB = env.bool("SUPABASE_USE_REMOTE_DB", default=False)
-ACTIVE_DATABASE_URL = SUPABASE_DB_URL if SUPABASE_USE_REMOTE_DB and SUPABASE_DB_URL else LOCAL_DATABASE_URL
+ACTIVE_DATABASE_URL = resolve_active_database_url(
+    supabase_use_remote_db=SUPABASE_USE_REMOTE_DB,
+    supabase_db_url=SUPABASE_DB_URL,
+    local_database_url=LOCAL_DATABASE_URL,
+    database_url=DATABASE_URL,
+)
 DATABASES = {
     "default": {
         **environ.Env.db_url_config(ACTIVE_DATABASE_URL),
         "CONN_MAX_AGE": 60,
     }
 }
+
+REDIS_URL = env("REDIS_URL", default="")
+REDIS_KEY_PREFIX = env("REDIS_KEY_PREFIX", default="mirrai")
+REDIS_USE_FOR_SESSIONS = env.bool("REDIS_USE_FOR_SESSIONS", default=True)
+CACHE_DEFAULT_TIMEOUT = env.int("CACHE_DEFAULT_TIMEOUT", default=300)
+PARTNER_DASHBOARD_CACHE_SECONDS = env.int("PARTNER_DASHBOARD_CACHE_SECONDS", default=30)
+PARTNER_LIST_CACHE_SECONDS = env.int("PARTNER_LIST_CACHE_SECONDS", default=60)
+PARTNER_DETAIL_CACHE_SECONDS = env.int("PARTNER_DETAIL_CACHE_SECONDS", default=45)
+PARTNER_HISTORY_CACHE_SECONDS = env.int("PARTNER_HISTORY_CACHE_SECONDS", default=30)
+PARTNER_LOOKUP_CACHE_SECONDS = env.int("PARTNER_LOOKUP_CACHE_SECONDS", default=45)
+PARTNER_REPORT_CACHE_SECONDS = env.int("PARTNER_REPORT_CACHE_SECONDS", default=90)
+CACHES = build_cache_settings(
+    redis_url=REDIS_URL,
+    timeout=CACHE_DEFAULT_TIMEOUT,
+    key_prefix=REDIS_KEY_PREFIX,
+)
 
 SUPABASE_URL = env("SUPABASE_URL", default="")
 SUPABASE_ANON_KEY = env("SUPABASE_ANON_KEY", default="")
@@ -77,7 +120,11 @@ MIRRAI_WATERMARK_SPACING_X_RATIO = env.float("MIRRAI_WATERMARK_SPACING_X_RATIO",
 MIRRAI_WATERMARK_SPACING_Y_RATIO = env.float("MIRRAI_WATERMARK_SPACING_Y_RATIO", default=1.2)
 MIRRAI_WATERMARK_STAGGER_RATIO = env.float("MIRRAI_WATERMARK_STAGGER_RATIO", default=0.48)
 SUPABASE_BUCKET_FILE_SIZE_LIMIT = env.int("SUPABASE_BUCKET_FILE_SIZE_LIMIT", default=10 * 1024 * 1024)
-SUPABASE_ALLOWED_MIME_TYPES = [item.strip() for item in env.list("SUPABASE_ALLOWED_MIME_TYPES", default=["image/jpeg", "image/png", "image/webp"]) if item.strip()]
+SUPABASE_ALLOWED_MIME_TYPES = [
+    item.strip()
+    for item in env.list("SUPABASE_ALLOWED_MIME_TYPES", default=["image/jpeg", "image/png", "image/webp"])
+    if item.strip()
+]
 MIRRAI_PERSIST_CAPTURE_IMAGES = env.bool("MIRRAI_PERSIST_CAPTURE_IMAGES", default=False)
 MIRRAI_LOCAL_MOCK_RESULTS = env.bool("MIRRAI_LOCAL_MOCK_RESULTS", default=False)
 TREND_REFRESH_ENABLED = env.bool("TREND_REFRESH_ENABLED", default=False)
@@ -100,7 +147,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware", # Static 서빙 최적화
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "app.middleware.BrowserSessionCleanupMiddleware",
@@ -147,13 +194,14 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Session configuration
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
-SESSION_COOKIE_AGE = 86400 * 7  # 7 days persistent session
-SESSION_SAVE_EVERY_REQUEST = True
+SESSION_COOKIE_AGE = 86400 * 7
+SESSION_SAVE_EVERY_REQUEST = env.bool("SESSION_SAVE_EVERY_REQUEST", default=True)
+SESSION_ENGINE = env("SESSION_ENGINE", default="django.contrib.sessions.backends.db")
+SESSION_CACHE_ALIAS = env("SESSION_CACHE_ALIAS", default="default")
+if REDIS_URL and REDIS_USE_FOR_SESSIONS and SESSION_ENGINE == "django.contrib.sessions.backends.db":
+    SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 
-# Use a manifest only in production-like environments so local runserver
-# can render templates without collectstatic.
 if DEBUG:
     STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
 else:
@@ -200,6 +248,9 @@ TREND_SCHEDULER_TIMEOUT = env.int("TREND_SCHEDULER_TIMEOUT", default=1800)
 TREND_SCHEDULER_POLL_INTERVAL = env.float("TREND_SCHEDULER_POLL_INTERVAL", default=5.0)
 TREND_SCHEDULER_SLEEP_INTERVAL = env.float("TREND_SCHEDULER_SLEEP_INTERVAL", default=15.0)
 TREND_SCHEDULER_TEST_AT = env("TREND_SCHEDULER_TEST_AT", default="")
+TREND_LATEST_REMOTE_ENABLED = env.bool("TREND_LATEST_REMOTE_ENABLED", default=False)
+TREND_LATEST_RUNPOD_TIMEOUT = env.int("TREND_LATEST_RUNPOD_TIMEOUT", default=8)
+TREND_LATEST_RUNPOD_POLL_INTERVAL = env.float("TREND_LATEST_RUNPOD_POLL_INTERVAL", default=2.0)
 
 LOGGING = {
     "version": 1,
