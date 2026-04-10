@@ -25,7 +25,8 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
     />
-    <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}?v=20260409-10" />
+    <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}?v=20260410-01" />
+
     {% block extra_head %}{% endblock %}
   </head>
   <body data-has-session="{% if request.session.customer_id or request.session.admin_id or request.session.designer_id %}true{% else %}false{% endif %}">

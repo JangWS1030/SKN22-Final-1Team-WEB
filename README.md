@@ -68,6 +68,8 @@ MirrAI는 매장 중심 B2B2C 구조를 기준으로 동작합니다.
 - 최신 추천 배치가 처리 중이면 결과 페이지가 계속 폴링하며 기다립니다.
 - 추천 이미지 준비 안내 문구에 예상 시간(보통 1~2분)을 표시합니다.
 - `styles/...` 자산이 누락된 경우에도 플레이스홀더 이미지로 안전하게 대체합니다.
+- 로딩 중 **단계별 진행 표시**(이미지 저장 → 얼굴 분석 → 스타일 추천 → 이미지 합성)가 노출됩니다.
+- 다중 링 스피너 애니메이션이 로딩 중 화면에서 올바르게 작동합니다.
 
 ### 4. 최신 트렌드 피드
 
@@ -274,8 +276,9 @@ python manage.py run_trend_scheduler
 
 - `RUNPOD_API_KEY`
 - `RUNPOD_ENDPOINT_ID`
+- `MIRRAI_AI_PROVIDER` — `runpod` (기본값) 또는 `local`
 - `MIRRAI_LOCAL_MOCK_RESULTS`
-- `MIRRAI_PERSIST_CAPTURE_IMAGES`
+- `MIRRAI_PERSIST_CAPTURE_IMAGES` — `True`로 설정 시 분석 이미지를 로컬/Supabase에 저장합니다. 파이프라인 정상 동작에 필요합니다.
 
 ### 트렌드 스케줄러
 
@@ -358,3 +361,20 @@ python manage.py test
 - 현재 추천 결과 페이지는 최신 배치를 기준으로만 결과를 열어주도록 강화되었습니다.
 - 샘플 이미지 fallback과 실제 생성 이미지의 구분이 더 명확해졌습니다.
 - README와 `.env.example`은 최근 변경된 로컬/배포 설정 흐름에 맞춰 다시 정리되었습니다.
+
+### 파이프라인 연결 문제 (트러블슈팅)
+
+**증상**: 추천 이미지가 생성되지 않거나 로딩 화면에서 멈춥니다.
+
+**원인 및 해결**:
+
+1. **Supabase 키 오류** — `SUPABASE_SECRET_KEY`(publishable key)는 스토리지 권한이 없습니다.  
+   → `SUPABASE_SERVICE_ROLE_KEY`에 service_role 키를 설정하세요.
+
+2. **이미지 저장 실패** — Supabase 버킷이 없거나 업로드 실패 시 `analysis_image_url`이 비어 헤어스타일 파이프라인이 스킵됩니다.  
+   → `MIRRAI_PERSIST_CAPTURE_IMAGES=True` + Supabase service_role 키 설정으로 해결됩니다.  
+   → Supabase 실패 시 로컬 저장(`storage/analysis-inputs/`)으로 자동 폴백됩니다.
+
+3. **로딩 스피너 미작동** — `base.css` 캐시로 인해 `@keyframes spin`이 없는 구버전이 로드될 수 있습니다.  
+   → CSS 버전 파라미터 업데이트 또는 강제 새로고침(Ctrl+Shift+R)으로 해결됩니다.
+

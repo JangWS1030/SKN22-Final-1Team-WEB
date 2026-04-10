@@ -94,30 +94,6 @@
     line-height: 1.7;
   }
 
-  .loading-step {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    border-radius: var(--radius-pill);
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--line);
-    transition: all 0.4s ease;
-  }
-
-  .loading-step.active {
-    background: var(--bg-dark);
-    color: var(--accent-neon);
-    box-shadow: 0 0 12px rgba(245, 209, 13, 0.25);
-  }
-
-  .loading-step.done {
-    background: #e8f5e9;
-    color: #2e7d32;
-  }
-
   #toast {
     position: fixed;
     bottom: 40px;
@@ -137,6 +113,21 @@
     transform: translateX(-50%) translateY(0);
   }
 
+  /* ── 스피너 애니메이션 (캐시 독립 보장) ── */
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes pulse-ring {
+    0%   { opacity: 1; transform: scale(1); }
+    50%  { opacity: 0.5; transform: scale(1.15); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
   @media (max-width: 768px) {
     .result-grid {
       grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -149,6 +140,7 @@
   }
 </style>
 {% endblock %}
+
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
@@ -183,16 +175,6 @@
   </div>
   <p id="loadingTitle" class="section-title" style="animation: fade-in 0.5s ease both;">AI가 최적의 조합을 찾는 중입니다...</p>
   <p id="loadingDetail" class="section-copy loading-detail">촬영 이미지를 저장하고 분석한 뒤 추천 이미지를 준비하고 있어요. 보통 1~2분 정도 걸립니다.</p>
-  <!-- 단계 표시 -->
-  <div id="loadingSteps" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px; flex-wrap: wrap;">
-    <span class="loading-step active" data-step="0">📷 이미지 저장</span>
-    <span style="color: var(--text-secondary); align-self: center;">→</span>
-    <span class="loading-step" data-step="1">🔍 얼굴 분석</span>
-    <span style="color: var(--text-secondary); align-self: center;">→</span>
-    <span class="loading-step" data-step="2">✨ 스타일 추천 생성</span>
-    <span style="color: var(--text-secondary); align-self: center;">→</span>
-    <span class="loading-step" data-step="3">🖼 이미지 합성</span>
-  </div>
 </div>
 
 
@@ -271,44 +253,13 @@
       }[char]));
     }
 
-    // ── 로딩 단계 표시 헬퍼 ──
-    const loadingStepEls = document.querySelectorAll('.loading-step');
-    const STEP_MESSAGES = [
-      { title: 'AI가 이미지를 저장하고 있습니다...', detail: '촬영 이미지를 안전하게 저장하고 있어요.' },
-      { title: 'AI가 얼굴을 분석하고 있습니다...', detail: '얼굴 형태와 비율을 측정하고 있어요. 잠시만 기다려 주세요.' },
-      { title: 'AI가 맞춤 스타일을 추천하고 있습니다...', detail: '얼굴 분석 결과와 취향 설문을 바탕으로 최적의 스타일을 선택 중이에요.' },
-      { title: 'AI가 스타일 이미지를 합성하고 있습니다...', detail: '추천 헤어스타일 이미지를 생성하고 있어요. 거의 다 됐어요!' },
-    ];
-
-    function setLoadingStep(stepIndex) {
-      loadingStepEls.forEach((el, i) => {
-        el.classList.remove('active', 'done');
-        if (i < stepIndex) el.classList.add('done');
-        else if (i === stepIndex) el.classList.add('active');
-      });
-      if (stepIndex < STEP_MESSAGES.length) {
-        const msg = STEP_MESSAGES[stepIndex];
-        if (loadingTitle) loadingTitle.textContent = msg.title;
-        if (loadingDetail) loadingDetail.textContent = msg.detail;
-      }
-    }
-
-    // 폴링 경과 시간에 따라 단계 자동 진행
-    function syncLoadingStepByElapsed(elapsed) {
-      if (elapsed < 8000)       setLoadingStep(0);
-      else if (elapsed < 25000) setLoadingStep(1);
-      else if (elapsed < 55000) setLoadingStep(2);
-      else                      setLoadingStep(3);
-    }
-
     function setLoadingState(title, detail) {
       loading.classList.remove('is-hidden');
-      // 경과 시간 기반 단계 동기화 (pollStartedAt이 있을 때)
-      if (pollStartedAt) {
-        syncLoadingStepByElapsed(Date.now() - pollStartedAt);
-      } else {
-        if (loadingTitle) loadingTitle.textContent = title || 'AI가 최적의 조합을 찾는 중입니다...';
-        if (loadingDetail) loadingDetail.textContent = detail || '촬영 이미지를 저장하고 분석한 뒤 추천 이미지를 준비하고 있어요. 보통 1~2분 정도 걸립니다.';
+      if (loadingTitle) {
+        loadingTitle.textContent = title || 'AI가 최적의 조합을 찾는 중입니다...';
+      }
+      if (loadingDetail) {
+        loadingDetail.textContent = detail || '촬영 이미지를 저장하고 분석한 뒤 추천 이미지를 준비하고 있어요. 보통 1~2분 정도 걸립니다.';
       }
     }
 
