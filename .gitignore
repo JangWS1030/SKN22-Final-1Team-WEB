@@ -45,13 +45,7 @@ local_settings.py
 
 # Local runtime data
 *.sqlite3
-!data/rag/stores/chromadb_trends/**/*.sqlite3
-!data/rag/stores/chromadb_ncs/**/*.sqlite3
-!data/rag/stores/chromadb_chatbot/**/*.sqlite3
 *.db
-!data/rag/stores/chromadb_trends/**/*.db
-!data/rag/stores/chromadb_ncs/**/*.db
-!data/rag/stores/chromadb_chatbot/**/*.db
 mirrai.db
 storage/
 media/
@@ -63,14 +57,7 @@ backend/
 
 # Generated local RAG assets
 data/rag/*
-!data/rag/stores/
-data/rag/stores/**
-!data/rag/stores/chromadb_trends/
-!data/rag/stores/chromadb_trends/**
-!data/rag/stores/chromadb_ncs/
-!data/rag/stores/chromadb_ncs/**
-!data/rag/stores/chromadb_chatbot/
-!data/rag/stores/chromadb_chatbot/**
+data/rag/stores/
 
 # Security and keys
 *.pem
@@ -110,6 +97,7 @@ deploy.zip
 seed_test_data.py
 tasks/
 .agents/
+.claude/
 pm/
 review/
 detect_encoding.py
@@ -124,8 +112,16 @@ front_feedback/to_backend/
 # Local troubleshooting samples
 tmp/
 
-# Keep shared docs and feedback notes visible
+# Local verification-only tests
+app/tests/**
+
+# Keep selected tracked test/docs files visible
 !docs/
 !docs/runpod_direct_b_refactor_report_0406_ver1.md
+!app/tests/
+!app/tests/test_seed_test_accounts.py
+!app/tests/test_ai_facade.py
+!app/tests/test_session_login_regressions.py
+!app/tests/test_recommendation_diagnostics.py
 !front_feedback/
 !front_feedback/**
