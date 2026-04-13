@@ -2000,8 +2000,7 @@
         uploadInFlight = false;
         updateStatus(data.message || "사진을 다시 촬영해주세요.", "error");
         updateAutoHint("사진을 다시 맞춘 뒤 재촬영해 주세요.", "error");
-        confirmBtn.disabled = false;
-        retakeBtn.disabled = false;
+        handleRetake();
         return;
       }
 
