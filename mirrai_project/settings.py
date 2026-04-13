@@ -70,19 +70,15 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.elasticbeanstalk.com",
 ]
 
-DATABASE_URL = env("DATABASE_URL", default="")
+# Database 설정: Supabase PostgreSQL을 유일한 DB로 고정합니다.
 SUPABASE_DB_URL = env("SUPABASE_DB_URL", default="")
-LOCAL_DATABASE_URL = env("LOCAL_DATABASE_URL", default=DATABASE_URL or "sqlite:///db.sqlite3")
-SUPABASE_USE_REMOTE_DB = env.bool("SUPABASE_USE_REMOTE_DB", default=False)
-ACTIVE_DATABASE_URL = resolve_active_database_url(
-    supabase_use_remote_db=SUPABASE_USE_REMOTE_DB,
-    supabase_db_url=SUPABASE_DB_URL,
-    local_database_url=LOCAL_DATABASE_URL,
-    database_url=DATABASE_URL,
-)
+if not SUPABASE_DB_URL:
+    # 실서버 또는 로컬 개발 시에도 Supabase URL이 없으면 에러를 발생시켜 명확히 알립니다.
+    raise ImproperlyConfigured("SUPABASE_DB_URL 환경 변수가 설정되지 않았습니다. Supabase 연결이 필수입니다.")
+
 DATABASES = {
     "default": {
-        **environ.Env.db_url_config(ACTIVE_DATABASE_URL),
+        **environ.Env.db_url_config(SUPABASE_DB_URL),
         "CONN_MAX_AGE": 60,
     }
 }
@@ -242,7 +238,7 @@ TREND_SCHEDULER_TIMEZONE = env("TREND_SCHEDULER_TIMEZONE", default=TIME_ZONE)
 TREND_SCHEDULER_WEEKLY_DAY = env("TREND_SCHEDULER_WEEKLY_DAY", default="fri")
 TREND_SCHEDULER_WEEKLY_HOUR = env.int("TREND_SCHEDULER_WEEKLY_HOUR", default=8)
 TREND_SCHEDULER_WEEKLY_MINUTE = env.int("TREND_SCHEDULER_WEEKLY_MINUTE", default=0)
-TREND_SCHEDULER_STEPS = env("TREND_SCHEDULER_STEPS", default="crawl,refine,llm_refine,vectorize,rebuild_ncs,rebuild_styles")
+TREND_SCHEDULER_STEPS = env("TREND_SCHEDULER_STEPS", default="crawl,refine,llm_refine,vectorize,rebuild_ncs")
 TREND_SCHEDULER_INCLUDE_NCS = env.bool("TREND_SCHEDULER_INCLUDE_NCS", default=False)
 TREND_SCHEDULER_INCLUDE_STYLES = env.bool("TREND_SCHEDULER_INCLUDE_STYLES", default=False)
 TREND_SCHEDULER_TIMEOUT = env.int("TREND_SCHEDULER_TIMEOUT", default=1800)
