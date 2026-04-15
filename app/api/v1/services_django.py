@@ -2544,6 +2544,9 @@ def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapsho
     if normalized_items or isinstance(items, list):
         payload["items"] = normalized_items
 
+    if payload.get("status") == "processing" and any(item.get("has_displayable_simulation") for item in normalized_items):
+        payload["status"] = "ready"
+
     recommendation_stage = str(
         payload.get("recommendation_stage")
         or _legacy_recommendation_stage(normalized_items)

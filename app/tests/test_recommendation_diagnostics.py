@@ -248,6 +248,54 @@ class RecommendationDiagnosticSnapshotTests(SimpleTestCase):
 
         self.assertEqual(payload["status"], "processing")
 
+    def test_finalize_recommendation_payload_promotes_processing_to_ready_when_partial_images_exist(self):
+        client = SimpleNamespace(id=99, legacy_client_id="legacy-99", name="Partial", phone="01000009999")
+        payload = {
+            "status": "processing",
+            "source": "current_recommendations",
+            "message": "still generating",
+            "items": [
+                {
+                    "style_id": 201,
+                    "style_name": "Ready Bob",
+                    "style_description": "partial",
+                    "simulation_image_url": "data:image/jpeg;base64,ZmFrZQ==",
+                    "sample_image_url": "/media/styles/201.jpg",
+                    "rank": 1,
+                    "reasoning_snapshot": {"source": "runpod"},
+                },
+                {
+                    "style_id": 202,
+                    "style_name": "Sample Bob",
+                    "style_description": "waiting",
+                    "simulation_image_url": None,
+                    "sample_image_url": "/media/styles/202.jpg",
+                    "rank": 2,
+                    "reasoning_snapshot": {"source": "runpod"},
+                },
+            ],
+        }
+        snapshot = {
+            "capture": {"record_id": 1, "present": True},
+            "analysis": {"analysis_id": 1, "present": True},
+            "predicted_response": {"decision": "generated_current_batch"},
+            "legacy_recommendations": {"count": 2},
+            "active_consultation": False,
+            "local_mock_enabled": False,
+            "capture_attempt": {"status": "DONE"},
+        }
+
+        with patch.object(services_django, "get_legacy_client_id", return_value="legacy-99"):
+            normalized = services_django._finalize_recommendation_payload(
+                client=client,
+                payload=payload,
+                snapshot=snapshot,
+            )
+
+        self.assertEqual(normalized["status"], "ready")
+        self.assertEqual(normalized["display_gate_status"], "partial_ready")
+        self.assertEqual(normalized["display_gate_ready_count"], 1)
+
     def test_get_current_recommendations_requires_retake_when_latest_capture_failed(self):
         client = SimpleNamespace(id=14, legacy_client_id="legacy-14", name="Retake", phone="01000001414")
         failed_capture = SimpleNamespace(id=61, analysis_id=61, status="FAILED", face_count=0, created_at=None, updated_at=None)
