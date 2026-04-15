@@ -602,15 +602,24 @@
         && items.every((item) => Boolean(item.simulation_image_url || item.synthetic_image_url));
     }
 
+    function hasAnySimulationImage(items) {
+      return Array.isArray(items)
+        && items.some((item) => Boolean(item.simulation_image_url || item.synthetic_image_url));
+    }
+
     function shouldContinuePolling(data, items, elapsed) {
       const status = String((data && data.status) || '').toLowerCase();
-      if (status === 'processing') {
+      const displayGateStatus = String((data && data.display_gate_status) || '').toLowerCase();
+      if (status === 'processing' || displayGateStatus === 'processing') {
         return true;
       }
       if (status === 'needs_capture' || status === 'needs_input' || status === 'empty') {
         return false;
       }
       if ((status === 'ready' || !status) && items.length > 0 && !allSimulationImagesReady(items)) {
+        if (displayGateStatus === 'partial_ready' || hasAnySimulationImage(items)) {
+          return false;
+        }
         return true;
       }
       if (freshTs && status === 'ready' && !isNewResult(items)) {
