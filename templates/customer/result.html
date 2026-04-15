@@ -693,6 +693,43 @@
       }
     }
 
+    function extractDataUrlBase64Length(value) {
+      if (typeof value !== 'string' || !value.startsWith('data:image/')) {
+        return 0;
+      }
+      const separatorIndex = value.indexOf(',');
+      return separatorIndex >= 0 ? value.slice(separatorIndex + 1).length : 0;
+    }
+
+    function resolveRenderImage(style) {
+      const simulationImageUrl = typeof style.simulation_image_url === 'string' ? style.simulation_image_url.trim() : '';
+      if (simulationImageUrl) {
+        return { field: 'simulation_image_url', url: simulationImageUrl };
+      }
+      const syntheticImageUrl = typeof style.synthetic_image_url === 'string' ? style.synthetic_image_url.trim() : '';
+      if (syntheticImageUrl) {
+        return { field: 'synthetic_image_url', url: syntheticImageUrl };
+      }
+      const sampleImageUrl = typeof style.sample_image_url === 'string' ? style.sample_image_url.trim() : '';
+      if (sampleImageUrl) {
+        return { field: 'sample_image_url', url: sampleImageUrl };
+      }
+      return { field: 'placeholder', url: stylePlaceholderSvg };
+    }
+
+    function logRenderImagePayload(style, renderImage) {
+      const dataUrlBase64Length = extractDataUrlBase64Length(renderImage.url);
+      if (!renderImage.url || (renderImage.field === 'placeholder' && !dataUrlBase64Length)) {
+        return;
+      }
+      console.info('[recommendation_render_image_length]', {
+        style_id: style.style_id || null,
+        final_image_field: renderImage.field,
+        rendered_image_length: typeof renderImage.url === 'string' ? renderImage.url.length : null,
+        rendered_data_url_base64_length: dataUrlBase64Length || null,
+      });
+    }
+
     function renderResults(results) {
       grid.innerHTML = '';
       loading.classList.add('is-hidden');
@@ -707,7 +744,9 @@
       selectionBar.classList.remove('is-hidden');
 
       results.forEach((style) => {
-        const imageUrl = style.synthetic_image_url || style.simulation_image_url || style.sample_image_url || stylePlaceholderSvg;
+        const renderImage = resolveRenderImage(style);
+        const imageUrl = renderImage.url;
+        logRenderImagePayload(style, renderImage);
         const styleName = style.style_name || '추천 스타일';
         const reasoning = style.reasoning || style.style_description || '추천 설명을 준비하고 있습니다.';
         const matchBasis = formatMatchBasis(style.reasoning_snapshot);

@@ -47,6 +47,30 @@ class RecommendationDiagnosticSnapshotTests(SimpleTestCase):
         self.assertEqual(payload["items"][0]["simulation_image_url"], "https://cdn.example.com/simulations/301.png")
         self.assertEqual(payload["items"][0]["display_image_url"], "https://cdn.example.com/simulations/301.png")
 
+    def test_normalize_recommendation_item_contract_strips_raw_base64_and_prefers_simulation_field(self):
+        item = {
+            "style_id": 301,
+            "style_name": "Clean Crop Two-Block",
+            "style_description": "history item",
+            "sample_image_url": " https://cdn.example.com/styles/301.jpg ",
+            "synthetic_image_url": " data:image/webp;base64,ZmFrZQ== ",
+            "image_base64": "b3ZlcnJpZGVk",
+            "mask_base64": "bWFzaw==",
+            "reasoning_snapshot": {
+                "preview_base64": "cHJldmlldw==",
+            },
+        }
+
+        normalized = services_django._normalize_recommendation_item_contract(item)
+
+        self.assertEqual(normalized["simulation_image_url"], "data:image/webp;base64,ZmFrZQ==")
+        self.assertEqual(normalized["synthetic_image_url"], "data:image/webp;base64,ZmFrZQ==")
+        self.assertEqual(normalized["display_image_url"], "data:image/webp;base64,ZmFrZQ==")
+        self.assertEqual(normalized["sample_image_url"], "https://cdn.example.com/styles/301.jpg")
+        self.assertNotIn("image_base64", normalized)
+        self.assertNotIn("mask_base64", normalized)
+        self.assertNotIn("preview_base64", normalized["reasoning_snapshot"])
+
     @override_settings(DEBUG=True, MIRRAI_LOCAL_MOCK_RESULTS=True)
     def test_build_snapshot_marks_local_mock_fallback_when_capture_exists_without_analysis(self):
         client = SimpleNamespace(id=7, legacy_client_id="legacy-7", name="Tester", phone="01012345678")
