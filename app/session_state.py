@@ -201,6 +201,8 @@ def get_session_designer(*, request: HttpRequest) -> Designer | None:
 
 
 def _set_owner_scope(*, request: HttpRequest, session_key: str, allowed: bool) -> None:
+    if request.session.get(session_key) == allowed:
+        return
     request.session[session_key] = allowed
     request.session.modified = True
 
@@ -251,11 +253,15 @@ def revoke_all_owner_scopes(*, request: HttpRequest) -> None:
 
 
 def allow_designer_dashboard(*, request: HttpRequest) -> None:
+    if request.session.get(DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY) is True:
+        return
     request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = True
     request.session.modified = True
 
 
 def revoke_designer_dashboard(*, request: HttpRequest) -> None:
+    if request.session.get(DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY) is False:
+        return
     request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
 
